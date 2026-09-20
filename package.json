@@ -1,0 +1,55 @@
+{
+    "name": "@bejibun/orm",
+    "version": "0.1.0",
+    "author": "Havea Crenata <havea.crenata@gmail.com>",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Bejibun-Framework/bejibun-orm.git"
+    },
+    "main": "index.js",
+    "module": "index.js",
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "@types/bun": "^1.4.2",
+        "eslint": "^10.10.0",
+        "eslint-config-prettier": "^10.1.8",
+        "globals": "^17.12.0",
+        "prettier": "^3.9.6",
+        "tsc-alias": "^1.9.4",
+        "typescript": "^6.0.3",
+        "typescript-eslint": "^8.70.0"
+    },
+    "bugs": {
+        "url": "https://github.com/Bejibun-Framework/bejibun-orm/issues"
+    },
+    "description": "ORM for Bejibun Framework",
+    "homepage": "https://github.com/Bejibun-Framework/bejibun-orm#readme",
+    "keywords": [
+        "bun",
+        "bun framework",
+        "orm",
+        "bejibun",
+        "typescript"
+    ],
+    "license": "MIT",
+    "scripts": {
+        "alias": "tsc-alias -p tsconfig.json",
+        "types": "cp -rf src/types dist",
+        "rsync": "rsync -a dist/ ./",
+        "clean": "rm -rf dist",
+        "format": "prettier --write src --log-level=silent",
+        "eslint": "eslint src",
+        "lint": "bun run format && bun run eslint",
+        "test": "bun test tests/",
+        "build": "bun run lint && tsc -p tsconfig.json && bun run types && bun run alias && bun run rsync && bun run clean",
+        "deploy": "bun run build && bun publish --access public"
+    },
+    "type": "module",
+    "types": "index.d.ts",
+    "dependencies": {
+        "@bejibun/app": "^0.1.27",
+        "@bejibun/logger": "^0.2.10",
+        "@bejibun/redis": "^0.1.48",
+        "@bejibun/utils": "^0.1.31"
+    }
+}
