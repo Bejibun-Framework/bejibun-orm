@@ -1,8 +1,9 @@
 import Logger from "@bejibun/logger";
 import {defineValue} from "@bejibun/utils";
+import QueryException from "./QueryException";
 
 /** Error thrown for orm configuration and runtime failures. */
-export default class OrmException extends Error {
+export default class RecordNotFoundException extends QueryException {
     /** Numeric status code for the exception. */
     public code: number;
 
@@ -14,13 +15,13 @@ export default class OrmException extends Error {
      */
     public constructor(message?: string, code?: number) {
         super(message);
-        this.name = "OrmException";
-        this.code = defineValue(code, 503);
+        this.name = "RecordNotFoundException";
+        this.code = defineValue(code, 404);
 
         Logger.setContext(this.name).error(this.message).trace(this.stack);
 
         if (Error.captureStackTrace) {
-            Error.captureStackTrace(this, OrmException);
+            Error.captureStackTrace(this, RecordNotFoundException);
         }
     }
 }
