@@ -2,7 +2,7 @@
  * Throughput benchmark.
  *
  * Measures the hot paths touched on every orm operation, method by method. On baseline
- * each `new OrmBuilder()` re-reads the config file from disk (`fs.existsSync` +
+ * each `new QueryBuilder()` re-reads the config file from disk (`fs.existsSync` +
  * `require()`) and the driver getter resolves through a fresh enum builder (`Object.keys`
  * scan); the optimized build uses a ormd config, a module-level driver set, and a
  * native unix timestamp. `put`/`get`/`has` exercise the full facade path against the
@@ -44,7 +44,7 @@ function medianRow(trials) {
 }
 
 const ITERATIONS = 20_000;
-const methods = ["construction", "redis Orm.put()", "redis Orm.get()", "redis Orm.has()"];
+const methods = ["construction", "redis DB.put()", "redis DB.get()", "redis DB.has()"];
 const bCols = medianRow(runTrials(path.join(__dirname, "throughput-baseline.mjs")));
 const oCols = medianRow(runTrials(path.join(__dirname, "throughput-optimized.mjs")));
 

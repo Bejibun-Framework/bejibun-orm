@@ -32,15 +32,15 @@ Measures package import time by spawning fresh OS processes. Two metrics:
 
 ## Throughput
 
-The hot paths touched on every orm operation, measured per method. `construction` covers `new OrmBuilder()` plus driver resolution — baseline re-reads the config file from disk and resolves the driver through a fresh enum builder each time; the optimized build uses a ormd config and a module-level driver set. `Orm.put()`, `Orm.get()`, and `Orm.has()` run the full facade against the configured Redis driver. Requires a live Redis server on `127.0.0.1:6379`. 20,000 calls each, median of 15 runs.
+The hot paths touched on every orm operation, measured per method. `construction` covers `new QueryBuilder()` plus driver resolution — baseline re-reads the config file from disk and resolves the driver through a fresh enum builder each time; the optimized build uses a ormd config and a module-level driver set. `DB.put()`, `DB.get()`, and `DB.has()` run the full facade against the configured Redis driver. Requires a live Redis server on `127.0.0.1:6379`. 20,000 calls each, median of 15 runs.
 
 <!-- BENCHMARK:THROUGHPUT:START -->
 
 | Method              | baseline (0.1.25) | optimized | speedup    | baseline ops/s | optimized ops/s |
 | ------------------- | ----------------- | --------- | ---------- | -------------- | --------------- |
 | `construction`      | 117.8ms           | 6.9ms     | **17.06x** | 169,780/s      | 2,897,108/s     |
-| `redis Orm.put()` | 4734.1ms          | 1930.7ms  | **2.45x**  | 4,225/s        | 10,359/s        |
-| `redis Orm.get()` | 3315.4ms          | 2010.8ms  | **1.65x**  | 6,032/s        | 9,946/s         |
-| `redis Orm.has()` | 3308.6ms          | 2008.1ms  | **1.65x**  | 6,045/s        | 9,959/s         |
+| `redis DB.put()` | 4734.1ms          | 1930.7ms  | **2.45x**  | 4,225/s        | 10,359/s        |
+| `redis DB.get()` | 3315.4ms          | 2010.8ms  | **1.65x**  | 6,032/s        | 9,946/s         |
+| `redis DB.has()` | 3308.6ms          | 2008.1ms  | **1.65x**  | 6,045/s        | 9,959/s         |
 
 <!-- BENCHMARK:THROUGHPUT:END -->

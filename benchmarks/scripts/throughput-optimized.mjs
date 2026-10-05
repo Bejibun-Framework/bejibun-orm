@@ -2,7 +2,7 @@ console.log = () => {};
 console.error = () => {};
 
 const {default: Orm} = await import("../../index.js");
-const {default: OrmBuilder} = await import("../../builders/OrmBuilder.js");
+const {default: OrmBuilder} = await import("../../builders/QueryBuilder.js");
 
 const ITERATIONS = 20_000;
 const WARMUP = 500;

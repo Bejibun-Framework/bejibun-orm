@@ -1,6 +1,8 @@
 /**
  * Re-exports the orm exception classes.
  */
+export {default as ConnectionException} from "@/exceptions/ConnectionException";
+
 export {default as OptimisticLockException} from "@/exceptions/OptimisticLockException";
 
 export {default as QueryException} from "@/exceptions/QueryException";

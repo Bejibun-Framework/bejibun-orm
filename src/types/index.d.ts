@@ -1,2 +1,5 @@
-/** Re-exports Orm type declarations. */
-export * from "@/types/orm";
+export * from "@/types/context";
+
+export * from "@/types/model";
+
+export * from "@/types/relation";

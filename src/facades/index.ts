@@ -1,4 +1,1 @@
-/**
- * Re-exports the Orm facade.
- */
-export {default as Orm} from "@/facades/Orm";
+export {default as DB} from "@/facades/DB";

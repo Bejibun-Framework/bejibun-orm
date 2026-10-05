@@ -18,13 +18,21 @@ const isUniqueViolation = (error: any): boolean => {
     return UniquePatterns.some((pattern: RegExp) => pattern.test(message));
 };
 
-export const translateQueryError = (error: any, sql?: string, bindings?: Array<any>): QueryException => {
+export const translateQueryError = (
+    error: any,
+    sql?: string,
+    bindings?: Array<any>
+): QueryException => {
     if (error instanceof QueryException) return error;
 
     const message: string = error?.message || String(error);
 
     if (isUniqueViolation(error)) {
-        const exception: QueryException = new UniqueConstraintViolationException(message, sql, bindings);
+        const exception: QueryException = new UniqueConstraintViolationException(
+            message,
+            sql,
+            bindings
+        );
 
         (exception as any).cause = error;
 
@@ -36,4 +44,4 @@ export const translateQueryError = (error: any, sql?: string, bindings?: Array<a
     (exception as any).cause = error;
 
     return exception;
-}
+};

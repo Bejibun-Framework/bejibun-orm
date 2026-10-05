@@ -8,13 +8,13 @@ const WARMUP = 500;
 const driver = "driver";
 
 for (let i = 0; i < WARMUP; i++) {
-    const b = new (await import("@bejibun-baseline/orm/builders/OrmBuilder")).default();
+    const b = new (await import("@bejibun-baseline/orm/builders/QueryBuilder")).default();
     b[driver];
 }
 
 let t0 = performance.now();
 for (let i = 0; i < ITERATIONS; i++) {
-    const b = new (await import("@bejibun-baseline/orm/builders/OrmBuilder")).default();
+    const b = new (await import("@bejibun-baseline/orm/builders/QueryBuilder")).default();
     b[driver];
 }
 const buildMs = performance.now() - t0;
