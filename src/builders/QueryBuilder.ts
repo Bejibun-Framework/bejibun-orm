@@ -2,6 +2,7 @@ import type {Database} from "bun:sqlite";
 import type {EagerLoadSpec} from "@/types/model";
 import type {CompiledQuery, HavingClause, JoinClause, OrderClause, UnionClause, WhereClause} from "@/types/query";
 import Grammar from "@/builders/Grammar";
+import DatabaseDriverEnum from "@/enums/DatabaseDriverEnum";
 import DB from "@/facades/DB";
 
 export default class QueryBuilder {
@@ -127,7 +128,38 @@ export default class QueryBuilder {
     }
 
     protected dateFunctionSql(fn: string, column: string): string {
-        const driver: string = this.grammar.dr
+        const driver: string = this.grammar.driverName();
+        const quoted: string = this.grammar.quote(column);
+
+        if (driver === DatabaseDriverEnum.Pg) {
+            switch (fn) {
+                case "DAY":
+                case "MONTH":
+                case "YEAR":
+                    return `EXTRACT(${fn} FROM ${quoted})`;
+                case "TIME":
+                    return `(${quoted})::time`;
+                default:
+                    return `(${quoted})::date`;
+            }
+        }
+
+        if (driver === DatabaseDriverEnum.Sqlite || driver === DatabaseDriverEnum.Sqlite3) {
+            switch (fn) {
+                case "DAY":
+                    return `strftime('%d', ${quoted})`;
+                case "MONTH":
+                    return `strftime('%m', ${quoted})`;
+                case "YEAR":
+                    return `strftime('%Y', ${quoted})`;
+                case "TIME":
+                    return `strftime('%H:%M:%S', ${quoted})`;
+                default:
+                    return `date(${quoted})`;
+            }
+        }
+
+        return `${fn}(${quoted})`;
     }
 
     protected compileWheres(): CompiledQuery {
@@ -149,8 +181,9 @@ export default class QueryBuilder {
 
                     return `${glue} ${g.quote(where.column!)} ${where.not ? "NOT IN" : "IN"} (${placeholders})`;
                 case "null":
+                    return `${glue} ${g.quote(where.column!)} IS NULL`;
                 case "not-null":
-                    return `${glue} ${g.quote(where.column!)} ${where.type === "not-null" ? "IS NOT NULL" : "IS NULL"}`;
+                    return `${glue} ${g.quote(where.column!)} IS NOT NULL`;
                 case "between":
                     return `${glue} ${g.quote(where.column!)} ${where.not ? "NOT BETWEEN" : "BETWEEN"} ? AND ?`;
                 case "nested":
@@ -173,9 +206,47 @@ export default class QueryBuilder {
 
                     return `${glue} ${g.quote(where.column!)} ${where.not ? "NOT IN" : "IN"} (${subSql})`;
                 case "date-part":
-                    return `${glue} ${da}`
+                    return `${glue} ${this.dateFunctionSql(where.dateFunction!, where.column!)} ${where.operator} ?`;
+                case "like":
+                    const operator: string = where.operator === "ILIKE" && g.driverName() !== DatabaseDriverEnum.Pg ? "LIKE" : where.operator!;
+
+                    return `${glue} ${g.quote(where.column!)} ${operator} ?`;
+                case "json":
+                    return `${glue} ${where.sql}`;
+                default:
+                    return "";
             }
-        })
+        });
+
+        const bindings: Array<any> = this.wheres.flatMap((where: WhereClause) => {
+            switch (where.type) {
+                case "basic":
+                case "date-part":
+                case "like":
+                    return [where.value];
+                case "in":
+                case "between":
+                    return where.values || [];
+                case "nested":
+                    return where.nested!.compileWheres().bindings;
+                case "raw":
+                case "json":
+                    return where.bindings || [];
+                case "exists":
+                case "sub":
+                    return where.nested!.compileSelect().bindings;
+                case "null":
+                case "not-null":
+                case "column":
+                default:
+                    return [];
+            }
+        });
+
+        return {
+            sql: ` ${segments.join(" ")}`,
+            bindings
+        };
     }
 
     protected compileSelect(): CompiledQuery {
@@ -192,6 +263,6 @@ export default class QueryBuilder {
 
             return `${type} ${join.table.includes("(") ? join.table : g.quote(join.table)} ON ${join.first} ${join.operator} ${join.second || ""}`;
         }).join(" ");
-        const wherePart: CompiledQuery = com
+        const wherePart: CompiledQuery = this.compileWheres();
     }
 }

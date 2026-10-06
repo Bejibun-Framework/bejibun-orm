@@ -1,6 +1,6 @@
 import Logger from "@bejibun/logger";
 import {defineValue} from "@bejibun/utils";
-import QueryException from "./QueryException";
+import QueryException from "@/exceptions/QueryException";
 
 /** Error thrown for orm configuration and runtime failures. */
 export default class RecordNotFoundException extends QueryException {

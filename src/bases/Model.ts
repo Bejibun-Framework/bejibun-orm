@@ -1,9 +1,9 @@
 import type {EagerLoadRelation, EagerLoadSpec, ModelEventCallback} from "@/types/model";
+import Logger from "@bejibun/logger";
 import Luxon from "@bejibun/utils/facades/Luxon";
 import Relation from "@/bases/Relation";
 import QueryBuilder from "@/builders/QueryBuilder";
 import RelationException from "@/exceptions/RelationException";
-import Logger from "@bejibun/logger";
 
 const MODEL_PROXY_HANDLERS: ProxyHandler<Model<any>> = {
     get: (target: Model<any>, prop: PropertyKey, receiver: any): any => {

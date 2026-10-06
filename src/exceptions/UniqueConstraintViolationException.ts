@@ -1,5 +1,5 @@
 import Logger from "@bejibun/logger";
-import QueryException from "./QueryException";
+import QueryException from "@/exceptions/QueryException";
 
 export default class UniqueConstraintViolationException extends QueryException {
     public constructor(message: string, sql?: string, bindings?: Array<any>) {

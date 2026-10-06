@@ -73,3 +73,13 @@ export interface CursorPaginationResult {
     nextCursor: any;
     hasMore: boolean;
 }
+
+export interface QueryLogEntry {
+    sql: string;
+    bindings: Array<any>;
+    driver: string;
+    duration: number;
+    error?: any;
+}
+
+export type QueryListener = (entry: QueryLogEntry) => void;

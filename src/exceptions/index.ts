@@ -1,6 +1,3 @@
-/**
- * Re-exports the orm exception classes.
- */
 export {default as ConnectionException} from "@/exceptions/ConnectionException";
 
 export {default as OptimisticLockException} from "@/exceptions/OptimisticLockException";
@@ -8,6 +5,8 @@ export {default as OptimisticLockException} from "@/exceptions/OptimisticLockExc
 export {default as QueryException} from "@/exceptions/QueryException";
 
 export {default as RecordNotFoundException} from "@/exceptions/RecordNotFoundException";
+
+export {default as RelationException} from "@/exceptions/RelationException";
 
 export {default as UniqueConstraintViolationException} from "@/exceptions/UniqueConstraintViolationException";
 

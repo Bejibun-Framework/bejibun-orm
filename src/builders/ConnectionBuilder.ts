@@ -1,9 +1,10 @@
 import type {Database} from "bun:sqlite";
 import type {Connection} from "@/types/context";
 import App from "@bejibun/app";
+import {defineValue} from "@bejibun/utils";
 import {AsyncLocalStorage} from "node:async_hooks";
 import {ConnectionException} from "@/exceptions";
-import {defineValue} from "@bejibun/utils";
+import DatabaseDriverEnum from "@/enums/DatabaseDriverEnum";
 
 let cachedConfig: Record<string, any> | null = null;
 let scopeConnectionClosedHook: ((connection: Connection) => void) | undefined;
@@ -14,6 +15,7 @@ const connections: Map<string, Connection> = new Map<string, Connection>();
 const connectionScopes: AsyncLocalStorage<Map<string, Connection> | undefined> = new AsyncLocalStorage<Map<string, Connection> | undefined>();
 const driverStamps: WeakMap<object, string> = new WeakMap<object, string>();
 const bigIntAsNumberStamps: WeakMap<object, boolean> = new WeakMap<object, boolean>();
+const inFlightPooled: Set<Promise<void>> = new Set<Promise<void>>();
 
 export const DRIVER_TAG: symbol = Symbol.for("bejibun-orm.driver");
 
@@ -27,6 +29,16 @@ export const readStampedDriver = (connection: object): string | undefined => {
 
 export const stampBigIntAsNumber = (connection: object, enabled: boolean): void => {
     bigIntAsNumberStamps.set(connection, enabled);
+};
+
+export const trackPooledStatement = (promise: Promise<unknown>): void => {
+    const drain: Promise<void> = new Promise<void>((resolve: any) => {
+        void Promise.resolve(promise).then(() => resolve(), () => resolve());
+    });
+
+    inFlightPooled.add(drain);
+
+    void drain.finally(() => inFlightPooled.delete(drain));
 };
 
 const resolveConfig = (): Record<string, any> => {
@@ -43,8 +55,8 @@ const resolveConfig = (): Record<string, any> => {
 
 const isSqliteDriver = (driver: string): boolean => {
     return (
-        driver === "sqlite" ||
-        driver === "sqlite3" ||
+        driver === DatabaseDriverEnum.Sqlite ||
+        driver === DatabaseDriverEnum.Sqlite3 ||
         driver === "bun:sqlite" ||
         driver === "bun-sqlite"
     );
@@ -163,7 +175,7 @@ export default class ConnectionBuilder {
 
         if (!driverConfig) throw new ConnectionException(`Database connection [${key}] not configured.`);
 
-        const driver: string = driverConfig.driver || "pg";
+        const driver: string = driverConfig.driver || DatabaseDriverEnum.Pg;
 
         if (
             isSqliteDriver(driver) &&
@@ -183,7 +195,7 @@ export default class ConnectionBuilder {
 
         if (!driverConfig) throw new ConnectionException(`Database connection [${key}] not configured.`);
 
-        const driver: string = driverConfig.driver || "pg";
+        const driver: string = driverConfig.driver || DatabaseDriverEnum.Pg;
 
         if (isSqliteDriver(driver)) {
             const filename: string = driverConfig.filename || driverConfig.database || driverConfig.name || ":memory:";
@@ -203,13 +215,13 @@ export default class ConnectionBuilder {
 
         stampDriver(sql, driver);
 
-        stampBigIntAsNumber(sql, driver === "pg" && driverConfig.options?.bigIntAsNumber === true);
+        stampBigIntAsNumber(sql, driver === DatabaseDriverEnum.Pg && driverConfig.options?.bigIntAsNumber === true);
 
         return sql;
     }
 
     protected optionsFor(config: Record<string, any>): Bun.SQL.Options {
-        const driver: string = config.driver || "pg";
+        const driver: string = config.driver || DatabaseDriverEnum.Pg;
         const pool: Record<string, any> = config.pool || {};
         const top: Record<string, any> = resolveConfig();
 
@@ -239,9 +251,9 @@ export default class ConnectionBuilder {
     }
 
     protected buildUrl(driver: string, config: Record<string, any>): string {
-        const scheme: string = driver === "mysql" ? "mysql" : "postgres";
+        const scheme: string = driver === DatabaseDriverEnum.Mysql ? DatabaseDriverEnum.Mysql : "postgres";
         let host: string = config.host || "127.0.0.1";
-        const port: string | number = config.port || (driver === "mysql" ? 3306 : 5432);
+        const port: string | number = config.port || (driver === DatabaseDriverEnum.Mysql ? 3306 : 5432);
         const user: string = config.user || config.username || "postgres";
         const password: string = config.password || "";
         const database: string = config.database || config.name || "bejibun";
