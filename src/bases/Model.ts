@@ -135,7 +135,9 @@ export default class Model<T = Record<string, any>> {
             const modelClass: any = (target as any).constructor;
 
             if (modelClass?.lazyLoadingPreventionEnabled === true) {
-                const error: Error = new RelationException(`Attempted to lazy load relation [${key}] on [${modelClass.name}] but lazy loading has been prevented.`);
+                const error: Error = new RelationException(
+                    `Attempted to lazy load relation [${key}] on [${modelClass.name}] but lazy loading has been prevented.`
+                );
 
                 reject(error);
 
@@ -187,20 +189,23 @@ export default class Model<T = Record<string, any>> {
     ): Promise<void> {
         if (models.length === 0 || relations.length === 0) return;
 
-        const specs: Array<EagerLoadSpec> = relations
-            .map((entry: EagerLoadRelation) =>
-                typeof entry === "string"
-                    ? {relation: entry}
-                    : entry
-            );
+        const specs: Array<EagerLoadSpec> = relations.map((entry: EagerLoadRelation) =>
+            typeof entry === "string" ? {relation: entry} : entry
+        );
 
-        const groups: Map<string, {
-            constraints?: (builder: QueryBuilder) => any;
-            children: Array<EagerLoadSpec>;
-        }> = new Map<string, {
-            constraints?: (builder: QueryBuilder) => any;
-            children: Array<EagerLoadSpec>
-        }>();
+        const groups: Map<
+            string,
+            {
+                constraints?: (builder: QueryBuilder) => any;
+                children: Array<EagerLoadSpec>;
+            }
+        > = new Map<
+            string,
+            {
+                constraints?: (builder: QueryBuilder) => any;
+                children: Array<EagerLoadSpec>;
+            }
+        >();
 
         for (const spec of specs) {
             const segments: Array<string> = spec.relation.split(".");
@@ -236,7 +241,9 @@ export default class Model<T = Record<string, any>> {
                     try {
                         relation = accessor();
                     } catch {
-                        Logger.setContext("ORM").warn(`Relation ${root} not defined on ${this.name}.`);
+                        Logger.setContext("ORM").warn(
+                            `Relation ${root} not defined on ${this.name}.`
+                        );
 
                         return;
                     }
@@ -244,7 +251,9 @@ export default class Model<T = Record<string, any>> {
                     await relation.eagerLoad(models, root, group.constraints);
 
                     if (group.children.length > 0) {
-                        const children: Array<any> = models.flatMap((m: any) => m._relations?.[root] || []);
+                        const children: Array<any> = models.flatMap(
+                            (m: any) => m._relations?.[root] || []
+                        );
 
                         if (children.length > 0) {
                             const childClass: any = (children[0] as any).constructor;
@@ -263,14 +272,14 @@ export default class Model<T = Record<string, any>> {
         const builder: QueryBuilder = new QueryBuilder(this.tableName);
 
         builder._modelClass = this;
-        builder
+        builder;
     }
 
     public static async all(...relations: Array<string>): Promise<Array<any>> {
-        const models: Array<any> = await this.qu
+        const models: Array<any> = await this.qu;
     }
 
     public static async with(...relations: Array<EagerLoadRelation>): Promise<Array<Model>> {
-        const models: Array<any> = await this.all()
+        const models: Array<any> = await this.all();
     }
 }

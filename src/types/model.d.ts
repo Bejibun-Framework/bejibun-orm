@@ -8,6 +8,6 @@ export type ModelEventCallback = (
 export type EagerLoadSpec = {
     relation: string;
     constraints?: (builder: QueryBuilder) => any;
-}
+};
 
 export type EagerLoadRelation = string | EagerLoadSpec;

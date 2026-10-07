@@ -1,7 +1,20 @@
 import QueryBuilder from "@/builders/QueryBuilder";
 
 export interface WhereClause {
-    type: "basic" | "in" | "null" | "not-null" | "between" | "nested" | "raw" | "column" | "exists" | "date-part" | "like" | "sub" | "json";
+    type:
+        | "basic"
+        | "in"
+        | "null"
+        | "not-null"
+        | "between"
+        | "nested"
+        | "raw"
+        | "column"
+        | "exists"
+        | "date-part"
+        | "like"
+        | "sub"
+        | "json";
     column?: string;
     operator?: string;
     value?: any;

@@ -5,7 +5,7 @@ const listeners: Array<QueryListener> = [];
 let logging: boolean = false;
 let log: Array<QueryLogEntry> = [];
 
-export const onQuery = (listener: QueryListener): () => void => {
+export const onQuery = (listener: QueryListener): (() => void) => {
     listeners.push(listener);
 
     return () => {

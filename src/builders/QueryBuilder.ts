@@ -1,9 +1,17 @@
 import type {Database} from "bun:sqlite";
 import type {EagerLoadSpec} from "@/types/model";
-import type {CompiledQuery, HavingClause, JoinClause, OrderClause, UnionClause, WhereClause} from "@/types/query";
+import type {
+    CompiledQuery,
+    HavingClause,
+    JoinClause,
+    OrderClause,
+    UnionClause,
+    WhereClause
+} from "@/types/query";
 import Grammar from "@/builders/Grammar";
 import DatabaseDriverEnum from "@/enums/DatabaseDriverEnum";
 import DB from "@/facades/DB";
+import Raw from "@/builders/Raw";
 
 export default class QueryBuilder {
     public readonly grammar: Grammar;
@@ -36,30 +44,74 @@ export default class QueryBuilder {
     public constructor(table?: string, connection?: any) {
         this.fromTable = table || null;
 
-        const keep: boolean = (connection !== undefined && connection !== null && (connection as any)?.unsafe !== undefined) || connection instanceof Database || ((connection as any)?.options !== undefined && !(connection as any)?.unsafe);
+        const keep: boolean =
+            (connection !== undefined &&
+                connection !== null &&
+                (connection as any)?.unsafe !== undefined) ||
+            connection instanceof Database ||
+            ((connection as any)?.options !== undefined && !(connection as any)?.unsafe);
         const resolved: any = keep ? connection : (DB.connection?.() ?? connection);
 
         this.grammar = new Grammar(resolved);
     }
 
-    public fromSub(query: QueryBuilder | ((builder: QueryBuilder) => QueryBuilder), alias: string): QueryBuilder {
-        const sub: QueryBuilder = query instanceof QueryBuilder
-            ? query
-            : (() => {
-                const q: QueryBuilder = new QueryBuilder(undefined, {
-                    grammar: this.grammar
-                });
+    public fromSub(
+        query: QueryBuilder | ((builder: QueryBuilder) => QueryBuilder),
+        alias: string
+    ): QueryBuilder {
+        const sub: QueryBuilder =
+            query instanceof QueryBuilder
+                ? query
+                : (() => {
+                      const q: QueryBuilder = new QueryBuilder(undefined, {
+                          grammar: this.grammar
+                      });
 
-                query(q);
+                      query(q);
 
-                return q;
-            })();
+                      return q;
+                  })();
 
-        const compiled: CompiledQuery = sub.com
+        const compiled: CompiledQuery = sub.compileSelect();
+
+        this.fromTable = `(${compiled.sql}) AS ${this.grammar.quote(alias)}`;
+        this._fromBindings = compiled.bindings;
+
+        return this;
     }
 
-    public from(table: string | QueryBuilder | ((builder: QueryBuilder) => QueryBuilder), alias?: string): QueryBuilder {
-        if (typeof table === "function") return
+    public from(
+        table: string | QueryBuilder | ((builder: QueryBuilder) => QueryBuilder),
+        alias?: string
+    ): QueryBuilder {
+        if (typeof table === "function" || table instanceof QueryBuilder)
+            return this.fromSub(table, alias || "sub");
+
+        this.fromTable = table;
+        this._fromBindings = [];
+        this._compileCache = undefined;
+
+        return this;
+    }
+
+    public table(table: string): QueryBuilder {
+        return this.from(table);
+    }
+
+    public select(...columns: Array<string | Array<string> | Raw>): QueryBuilder {
+        this.columns = [];
+        this._selectBindings = [];
+
+        for (const column of columns.flat() as Array<string | Raw>) {
+            if (column instanceof Raw) {
+                this.columns.push(column.sql);
+                this._selectBindings.push(...column.bindings);
+            } else {
+                this.columns.push(column);
+            }
+        }
+
+        return this;
     }
 
     protected clone(): QueryBuilder {
@@ -73,9 +125,11 @@ export default class QueryBuilder {
         copy.distinct = this.distinct;
         copy.wheres = this.wheres.map((where: WhereClause) => ({
             ...where,
-            ...(where.nested ? {
-                nested: where.nested.clone()
-            } : {})
+            ...(where.nested
+                ? {
+                      nested: where.nested.clone()
+                  }
+                : {})
         }));
         copy.joins = this.joins.map((join: JoinClause) => ({
             ...join,
@@ -85,11 +139,11 @@ export default class QueryBuilder {
         copy._groupBindings = [...this._groupBindings];
         copy.havings = this.havings.map((having: HavingClause) => ({
             ...having,
-            bindings: [...having.bindings || []]
+            bindings: [...(having.bindings || [])]
         }));
         copy.orders = this.orders.map((order: OrderClause) => ({
             ...order,
-            bindings: [...order.bindings || []]
+            bindings: [...(order.bindings || [])]
         }));
         copy.limitCount = this.limitCount;
         copy.offsetCount = this.offsetCount;
@@ -120,9 +174,17 @@ export default class QueryBuilder {
 
         if (/^\(select\b/i.test(column)) return column;
 
-        if (/^(count|sum|min|max|avg|exists|coalesce|concat|rand|random|date|year|month|day|time)\(/i.test(column)) return column;
+        if (
+            /^(count|sum|min|max|avg|exists|coalesce|concat|rand|random|date|year|month|day|time)\(/i.test(
+                column
+            )
+        )
+            return column;
 
-        if (/[()\s]/.test(column) && !/``|""/.test(column)) return column.replace(/\b(\w+)\b/g, (word: string) => g.quote(word)).replace(/["'`]/g, "");
+        if (/[()\s]/.test(column) && !/``|""/.test(column))
+            return column
+                .replace(/\b(\w+)\b/g, (word: string) => g.quote(word))
+                .replace(/["'`]/g, "");
 
         return g.quote(column);
     }
@@ -162,11 +224,30 @@ export default class QueryBuilder {
         return `${fn}(${quoted})`;
     }
 
+    protected lockSql(): string {
+        if (this.lockMode === null || this.lockMode === undefined) return "";
+
+        const driver: string = this.grammar.driverName();
+
+        if (driver === DatabaseDriverEnum.Sqlite || driver === DatabaseDriverEnum.Sqlite3)
+            return "";
+
+        const keyword: string =
+            this.lockMode === true
+                ? "FOR UPDATE"
+                : this.lockMode === false
+                  ? "FOR SHARE"
+                  : String(this.lockMode);
+
+        return ` ${keyword}`;
+    }
+
     protected compileWheres(): CompiledQuery {
-        if (this.wheres.length === 0) return {
-            sql: "",
-            bindings: []
-        };
+        if (this.wheres.length === 0)
+            return {
+                sql: "",
+                bindings: []
+            };
 
         const g: Grammar = this.grammar;
 
@@ -208,7 +289,10 @@ export default class QueryBuilder {
                 case "date-part":
                     return `${glue} ${this.dateFunctionSql(where.dateFunction!, where.column!)} ${where.operator} ?`;
                 case "like":
-                    const operator: string = where.operator === "ILIKE" && g.driverName() !== DatabaseDriverEnum.Pg ? "LIKE" : where.operator!;
+                    const operator: string =
+                        where.operator === "ILIKE" && g.driverName() !== DatabaseDriverEnum.Pg
+                            ? "LIKE"
+                            : where.operator!;
 
                     return `${glue} ${g.quote(where.column!)} ${operator} ?`;
                 case "json":
@@ -251,18 +335,128 @@ export default class QueryBuilder {
 
     protected compileSelect(): CompiledQuery {
         const g: Grammar = this.grammar;
-        const columns: string = this.columns.length > 0 ? this.columns.map((column: string) => this.wrapColumn(column)).join(", ") : "*";
-        const fromSql: string = this.fromTable ? this.fromTable.includes("(") ? this.fromTable! : g.quote(this.fromTable!) : "";
+        const columns: string =
+            this.columns.length > 0
+                ? this.columns.map((column: string) => this.wrapColumn(column)).join(", ")
+                : "*";
+        const fromSql: string = this.fromTable
+            ? this.fromTable.includes("(")
+                ? this.fromTable!
+                : g.quote(this.fromTable!)
+            : "";
         const select: string = `${this.distinct ? "SELECT DISTINCT" : "SELECT"} ${columns}${this.fromTable ? ` FROM ${fromSql}` : ""}`;
-        const joins: string = this.joins.map((join: JoinClause) => {
-            if (join.type === "raw") return join.second;
+        const joins: string = this.joins
+            .map((join: JoinClause) => {
+                if (join.type === "raw") return join.second;
 
-            if (join.type === "cross") return `CROSS JOIN ${g.quote(join.table)}`;
+                if (join.type === "cross") return `CROSS JOIN ${g.quote(join.table)}`;
 
-            const type: string = join.type === "left" ? "LEFT JOIN" : join.type === "right" ? "RIGHT JOIN" : "INNER JOIN";
+                const type: string =
+                    join.type === "left"
+                        ? "LEFT JOIN"
+                        : join.type === "right"
+                          ? "RIGHT JOIN"
+                          : "INNER JOIN";
 
-            return `${type} ${join.table.includes("(") ? join.table : g.quote(join.table)} ON ${join.first} ${join.operator} ${join.second || ""}`;
-        }).join(" ");
+                return `${type} ${join.table.includes("(") ? join.table : g.quote(join.table)} ON ${join.first} ${join.operator} ${join.second || ""}`;
+            })
+            .join(" ");
         const wherePart: CompiledQuery = this.compileWheres();
+        const groups: string =
+            this.groups.length > 0
+                ? ` GROUP BY ${this.groups.map((column: string) => g.quote(column)).join(", ")}`
+                : "";
+        const havings: string =
+            this.havings.length > 0
+                ? ` HAVING ${this.havings.map((having: HavingClause) => having.sql).join(" AND ")}`
+                : "";
+        const orders: string =
+            this.orders.length > 0
+                ? ` ORDER BY ${this.orders
+                      .map((order: OrderClause) => {
+                          const column: string =
+                              order.column.includes("(") ||
+                              order.column.includes("RANDOM") ||
+                              order.column.includes("RAND(")
+                                  ? order.column
+                                  : g.quote(columns);
+
+                          return `${column} ${order.direction.toUpperCase()}`;
+                      })
+                      .join(", ")}`
+                : "";
+        const limit: string = this.limitCount !== null ? " LIMIT ?" : "";
+        const offset: string = this.offsetCount !== null ? " OFFSET ?" : "";
+        const core: string = [select, joins, wherePart.sql, groups, havings]
+            .filter((part: string) => part.length > 0)
+            .map((part: string) => part.trim())
+            .join(" ");
+        const tailBindings: Array<any> = [
+            ...this.orders.flatMap((order: OrderClause) => order.bindings || []),
+            ...(this.limitCount !== null ? [this.limitCount] : []),
+            ...(this.offsetCount !== null ? [this.offsetCount] : [])
+        ];
+
+        if (this._unions.length > 0) {
+            const unions: Array<string> = [];
+            const unionBindings: Array<any> = [];
+
+            for (const union of this._unions) {
+                const sub: CompiledQuery = union.query.compileSelect();
+
+                unions.push(`UNION ${union.all ? "ALL " : ""}${sub.sql}`);
+                unionBindings.push(...sub.bindings);
+            }
+
+            const combined: string = `${core} ${unions.join(" ")}`;
+            const appended: string = [orders, limit, offset, this.lockSql().trim()]
+                .filter((part: string) => part.length > 0)
+                .map((part: string) => part.trim())
+                .join(" ");
+
+            if (appended.length > 0)
+                return {
+                    sql: `SELECT * FROM (${combined}) AS ${g.quote("bejibun_union")}${appended.length > 0 ? ` ${appended}` : ""}`,
+                    bindings: [
+                        ...this._selectBindings,
+                        ...this._fromBindings,
+                        ...this.joins.flatMap((join: JoinClause) => join.bindings || []),
+                        ...wherePart.bindings,
+                        ...this._groupBindings,
+                        ...this.havings.flatMap((having: HavingClause) => having.bindings),
+                        ...unionBindings,
+                        ...tailBindings
+                    ]
+                };
+
+            return {
+                sql: combined,
+                bindings: [
+                    ...this._selectBindings,
+                    ...this._fromBindings,
+                    ...this.joins.flatMap((join: JoinClause) => join.bindings || []),
+                    ...wherePart.bindings,
+                    ...this._groupBindings,
+                    ...this.havings.flatMap((having: HavingClause) => having.bindings),
+                    ...unionBindings
+                ]
+            };
+        }
+
+        return {
+            sql: [core, orders, limit, offset, this.lockSql().trim()]
+                .filter((part: string) => part.length > 0)
+                .map((part: string) => part.trim())
+                .join(" "),
+            bindings: [
+                ...this._selectBindings,
+                ...this._fromBindings,
+                ...this.joins.flatMap((join: JoinClause) => join.bindings || []),
+                ...wherePart.bindings,
+                ...this._groupBindings,
+                ...this.havings.flatMap((having: HavingClause) => having.bindings),
+                ...tailBindings
+            ]
+        };
     }
 }

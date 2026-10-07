@@ -1,7 +1,11 @@
 import type {Database} from "bun:sqlite";
 import type {Connection} from "@/types/context";
 import type {PreparedStatement} from "@/types/grammar";
-import ConnectionBuilder, {DRIVER_TAG, readStampedDriver, trackPooledStatement} from "@/builders/ConnectionBuilder";
+import ConnectionBuilder, {
+    DRIVER_TAG,
+    readStampedDriver,
+    trackPooledStatement
+} from "@/builders/ConnectionBuilder";
 import {currentTransaction} from "@/contexts/TransactionContext";
 import DatabaseDriverEnum from "@/enums/DatabaseDriverEnum";
 import {translateQueryError} from "@/exceptions/translateQueryError";
@@ -11,7 +15,10 @@ import {record, shouldRecord} from "@/utils/QueryListener";
 const QUOTE_CACHE_MAX: number = 20_000;
 const STATEMENT_CACHE_MAX: number = 2_000;
 const driverCache: WeakMap<Connection, string> = new WeakMap<Connection, string>();
-const statementCache: WeakMap<Database, Map<string, PreparedStatement>> = new WeakMap<Database, Map<string, PreparedStatement>>();
+const statementCache: WeakMap<Database, Map<string, PreparedStatement>> = new WeakMap<
+    Database,
+    Map<string, PreparedStatement>
+>();
 const quoteCache: Map<string, Map<string, string>> = new Map<string, Map<string, string>>();
 
 const detectDriver = (connection: Connection): string => {
@@ -67,8 +74,8 @@ const detectDriver = (connection: Connection): string => {
             driver = (connection as any).options?.url?.startsWith(DatabaseDriverEnum.Mysql)
                 ? DatabaseDriverEnum.Mysql
                 : (connection as any).options?.filename
-                    ? DatabaseDriverEnum.Sqlite
-                    : DatabaseDriverEnum.Pg;
+                  ? DatabaseDriverEnum.Sqlite
+                  : DatabaseDriverEnum.Pg;
         }
     }
 
@@ -119,14 +126,15 @@ const isReadQuery = (sql: string): boolean => {
     if (/^(select|pragma|with|explain)\b/i.test(trimmed)) return true;
 
     return containsKeywordOutsideQuotes(sql, "returning");
-}
+};
 
 export default class Grammar {
     protected driver: string;
     protected connection: Connection;
 
     public constructor(connection?: Connection) {
-        this.connection = connection || currentTransaction() || new ConnectionBuilder().connection();
+        this.connection =
+            connection || currentTransaction() || new ConnectionBuilder().connection();
         this.driver = detectDriver(this.connection);
     }
 
@@ -252,24 +260,29 @@ export default class Grammar {
 
         try {
             const active: Connection = currentTransaction() ?? this.connection;
-            const result: any = active instanceof Database ? this.runSqlite<T>(active, sql, bindings) : await this.runPooled(sql, bindings, active);
+            const result: any =
+                active instanceof Database
+                    ? this.runSqlite<T>(active, sql, bindings)
+                    : await this.runPooled(sql, bindings, active);
 
-            if (observe) record({
-                sql,
-                bindings,
-                driver: this.driver,
-                duration: performance.now() - started
-            });
+            if (observe)
+                record({
+                    sql,
+                    bindings,
+                    driver: this.driver,
+                    duration: performance.now() - started
+                });
 
             return result as Array<T>;
         } catch (error: any) {
-            if (observe) record({
-                sql,
-                bindings,
-                driver: this.driver,
-                duration: performance.now() - started,
-                error
-            });
+            if (observe)
+                record({
+                    sql,
+                    bindings,
+                    driver: this.driver,
+                    duration: performance.now() - started,
+                    error
+                });
 
             throw translateQueryError(error, sql, bindings);
         }
@@ -321,8 +334,14 @@ export default class Grammar {
         return prepared.statement.run(...bindings) as any;
     }
 
-    protected async runPooled<T = any>(sql: string, bindings: Array<any>, connection: Connection): Promise<Array<T>> {
-        const target: any = (connection as any)?.unsafe ? connection : (DB.connection?.() ?? connection);
+    protected async runPooled<T = any>(
+        sql: string,
+        bindings: Array<any>,
+        connection: Connection
+    ): Promise<Array<T>> {
+        const target: any = (connection as any)?.unsafe
+            ? connection
+            : (DB.connection?.() ?? connection);
         const promise: Promise<any> = target.unsafe(this.compilePlaceholders(sql), bindings);
 
         trackPooledStatement(promise);

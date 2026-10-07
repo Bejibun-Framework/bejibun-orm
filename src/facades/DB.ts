@@ -4,7 +4,10 @@ import {currentTransaction} from "@/contexts/TransactionContext";
 
 let builder: ConnectionBuilder | null = null;
 
-const transactionTails: WeakMap<Connection, Promise<unknown>> = new WeakMap<Connection, Promise<unknown>>();
+const transactionTails: WeakMap<Connection, Promise<unknown>> = new WeakMap<
+    Connection,
+    Promise<unknown>
+>();
 
 export default class DB {
     private static defaultTransactionTimeoutMs: number = 0;
