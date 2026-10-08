@@ -272,7 +272,11 @@ export default class Model<T = Record<string, any>> {
         const builder: QueryBuilder = new QueryBuilder(this.tableName);
 
         builder._modelClass = this;
-        builder;
+        builder.setRelationResolver((name: string) => this.resolveRelation(name));
+
+        this.applyScopes(builder, (this as any).__globalScopes || []);
+
+        return this.applyModelDecorators(builder);
     }
 
     public static async all(...relations: Array<string>): Promise<Array<any>> {
@@ -281,5 +285,32 @@ export default class Model<T = Record<string, any>> {
 
     public static async with(...relations: Array<EagerLoadRelation>): Promise<Array<Model>> {
         const models: Array<any> = await this.all();
+    }
+
+    protected static resolveRelation(name: string): Relation {
+        const model: any = new (this as any)();
+        const accessor: any = model.relationAccessor(model, name);
+        const relation: any = accessor();
+
+        if (!(relation instanceof Relation))
+            throw new RelationException(`Relation "${name}" is not defined on ${this.name}.`);
+
+        return relation;
+    }
+
+    protected static applyScopes(
+        builder: QueryBuilder,
+        scopes: Array<{
+            name?: string;
+            scope: (builder: QueryBuilder) => QueryBuilder;
+        }>
+    ): QueryBuilder {
+        for (const entry of scopes) entry.scope(builder);
+
+        return builder;
+    }
+
+    protected static applyModelDecorators(builder: QueryBuilder): QueryBuilder {
+        return builder;
     }
 }

@@ -1,12 +1,15 @@
 import type {Database} from "bun:sqlite";
 import type {EagerLoadSpec} from "@/types/model";
 import type {
+    BooleanOperator,
     CompiledQuery,
     HavingClause,
     JoinClause,
     OrderClause,
+    QueryBuilderCallback,
     UnionClause,
-    WhereClause
+    WhereClause,
+    WhereInValues
 } from "@/types/query";
 import Grammar from "@/builders/Grammar";
 import DatabaseDriverEnum from "@/enums/DatabaseDriverEnum";
@@ -55,10 +58,7 @@ export default class QueryBuilder {
         this.grammar = new Grammar(resolved);
     }
 
-    public fromSub(
-        query: QueryBuilder | ((builder: QueryBuilder) => QueryBuilder),
-        alias: string
-    ): QueryBuilder {
+    public fromSub(query: QueryBuilder | QueryBuilderCallback, alias: string): QueryBuilder {
         const sub: QueryBuilder =
             query instanceof QueryBuilder
                 ? query
@@ -80,10 +80,7 @@ export default class QueryBuilder {
         return this;
     }
 
-    public from(
-        table: string | QueryBuilder | ((builder: QueryBuilder) => QueryBuilder),
-        alias?: string
-    ): QueryBuilder {
+    public from(table: string | QueryBuilder | QueryBuilderCallback, alias?: string): QueryBuilder {
         if (typeof table === "function" || table instanceof QueryBuilder)
             return this.fromSub(table, alias || "sub");
 
@@ -110,6 +107,389 @@ export default class QueryBuilder {
                 this.columns.push(column);
             }
         }
+
+        return this;
+    }
+
+    public addSelect(...columns: Array<string | Array<string> | Raw>): QueryBuilder {
+        for (const column of columns.flat() as Array<string | Raw>) {
+            if (column instanceof Raw) {
+                this.columns.push(column.sql);
+                this._selectBindings.push(...column.bindings);
+            } else {
+                this.columns.push(column);
+            }
+        }
+
+        return this;
+    }
+
+    public selectRaw(expression: string, bindings: Array<any> = []): QueryBuilder {
+        this.columns.push(expression);
+        this._selectBindings.push(...bindings);
+
+        return this;
+    }
+
+    public selectSub(query: QueryBuilder, as: string): QueryBuilder {
+        const compiled: CompiledQuery = query.compileSelect();
+        const sql: string = `(${compiled.sql}) AS ${this.grammar.quote(as)}`;
+
+        this.columns.push(sql);
+        this._selectBindings.push(...compiled.bindings);
+
+        return this;
+    }
+
+    public distinctQuery(): QueryBuilder {
+        this.distinct = true;
+
+        return this;
+    }
+
+    public whereNull(
+        columns: string | Array<string>,
+        boolean: BooleanOperator = "and",
+        not: boolean = false
+    ): QueryBuilder {
+        const list: Array<string> = Array.isArray(columns) ? columns : [columns];
+
+        for (const column of list) {
+            this.wheres.push({
+                type: not ? "not-null" : "null",
+                column,
+                boolean
+            });
+        }
+
+        return this;
+    }
+
+    public whereNotNull(columns: string | Array<string>): QueryBuilder {
+        return this.whereNull(columns, "and", true);
+    }
+
+    public orWhereNull(columns: string | Array<string>): QueryBuilder {
+        return this.whereNull(columns, "or");
+    }
+
+    public orWhereNotNull(columns: string | Array<string>): QueryBuilder {
+        return this.whereNull(columns, "or", true);
+    }
+
+    public whereSub(
+        column: string,
+        query: QueryBuilder | Raw | QueryBuilderCallback,
+        boolean: BooleanOperator = "and",
+        not: boolean = false
+    ): QueryBuilder {
+        let sub: QueryBuilder;
+
+        if (query instanceof QueryBuilder) {
+            sub = query;
+        } else if (query instanceof Raw) {
+            sub = new QueryBuilder(undefined, {
+                grammar: this.grammar
+            });
+            sub.fromTable = query.sql;
+            sub._fromBindings = query.bindings;
+        } else {
+            sub = new QueryBuilder(undefined, {
+                grammar: this.grammar
+            });
+            query(sub);
+        }
+
+        this.wheres.push({
+            type: "sub",
+            column,
+            nested: sub,
+            boolean,
+            not
+        });
+
+        return this;
+    }
+
+    public whereNotSub(
+        column: string,
+        query: QueryBuilder | Raw | QueryBuilderCallback
+    ): QueryBuilder {
+        return this.whereSub(column, query, "and", true);
+    }
+
+    public whereRaw(
+        sql: string,
+        bindings: Array<any> = [],
+        boolean: BooleanOperator = "and"
+    ): QueryBuilder {
+        this.wheres.push({
+            type: "raw",
+            sql,
+            bindings,
+            boolean
+        });
+
+        return this;
+    }
+
+    public orWhereRaw(sql: string, bindings: Array<any> = []): QueryBuilder {
+        return this.whereRaw(sql, bindings, "or");
+    }
+
+    public whereIn(
+        column: string,
+        values: WhereInValues,
+        boolean: BooleanOperator = "and",
+        not: boolean = false
+    ): QueryBuilder {
+        if (values instanceof QueryBuilder || values instanceof Raw || typeof values === "function")
+            return this.whereSub(column, values as any, boolean, not);
+
+        if ((values as Array<any>).length === 0)
+            return this.whereRaw(not ? "1 = 1" : "0 = 1", [], boolean);
+
+        this.wheres.push({
+            type: "in",
+            column,
+            values: values || [],
+            boolean,
+            not
+        });
+
+        return this;
+    }
+
+    public whereNotIn(column: string, values: WhereInValues): QueryBuilder {
+        return this.whereIn(column, values, "and", true);
+    }
+
+    public orWhereIn(column: string, values: WhereInValues): QueryBuilder {
+        return this.whereIn(column, values, "or");
+    }
+
+    public orWhereNotIn(column: string, values: WhereInValues): QueryBuilder {
+        return this.whereIn(column, values, "or", true);
+    }
+
+    public where(
+        column: any,
+        operator?: any,
+        value?: any,
+        boolean: BooleanOperator = "and"
+    ): QueryBuilder {
+        if (typeof column === "function") return this.whereNested(column, boolean);
+
+        if (
+            typeof column === "object" &&
+            column !== null &&
+            !(column instanceof Raw) &&
+            !(column instanceof QueryBuilder)
+        ) {
+            for (const [key, val] of Object.entries(column)) this.where(key, "=", val, boolean);
+
+            return this;
+        }
+
+        if (arguments.length === 2) {
+            value = operator;
+            operator = "=";
+        }
+
+        if (value === null) {
+            if (operator === "=" || operator === "==") return this.whereNull(column, boolean);
+
+            if (operator === "!=" || operator === "<>")
+                return this.whereNull(column, boolean, true);
+        }
+
+        if (value instanceof QueryBuilder) return this.whereSub(column, value, boolean);
+
+        if (value instanceof Raw)
+            return this.whereRaw(
+                `${this.grammar.quote(column)} ${operator} ${value.sql}`,
+                value.bindings,
+                boolean
+            );
+
+        if (typeof operator === "string" && /^\s*(not\s+)?in\s*$/i.test(operator))
+            return this.whereIn(
+                column,
+                Array.isArray(value) ? value : [value],
+                boolean,
+                /^not/i.test(operator)
+            );
+
+        this.wheres.push({
+            type: "basic",
+            column,
+            operator,
+            value,
+            boolean
+        });
+
+        return this;
+    }
+
+    public orWhere(column: any, operator?: any, value?: any): QueryBuilder {
+        if (value === undefined && operator !== undefined) {
+            value = operator;
+            operator = "=";
+        }
+
+        return this.where(column, operator, value, "or");
+    }
+
+    public whereBetween(
+        column: string,
+        min: any,
+        max: any,
+        boolean: BooleanOperator = "and",
+        not: boolean = false
+    ): QueryBuilder {
+        this.wheres.push({
+            type: "between",
+            column,
+            values: [min, max],
+            boolean,
+            not
+        });
+
+        return this;
+    }
+
+    public whereNotBetween(column: string, min: any, max: any): QueryBuilder {
+        return this.whereBetween(column, min, max, "and", true);
+    }
+
+    public orWhereBetween(column: string, min: any, max: any): QueryBuilder {
+        return this.whereBetween(column, min, max, "or");
+    }
+
+    public orWhereNotBetween(column: string, min: any, max: any): QueryBuilder {
+        return this.whereBetween(column, min, max, "or", true);
+    }
+
+    public whereColumn(
+        first: string,
+        operator?: string,
+        second?: string,
+        boolean: BooleanOperator = "and"
+    ): QueryBuilder {
+        if (arguments.length === 2) {
+            second = operator;
+            operator = "=";
+        }
+
+        this.wheres.push({
+            type: "column",
+            column: first,
+            operator,
+            second,
+            boolean
+        });
+
+        return this;
+    }
+
+    public orWhereColumn(first: string, operator?: string, second?: string): QueryBuilder {
+        return this.whereColumn(first, operator, second, "or");
+    }
+
+    public whereDate(column: string, operator: any, value?: any): QueryBuilder {
+        return this.whereDatePart(column, "DATE", operator, value);
+    }
+
+    public orWhereDate(column: string, operator: any, value?: any): QueryBuilder {
+        return this.whereDatePart(column, "DATE", operator, value, "or");
+    }
+
+    public whereDay(column: string, operator: any, value?: any): QueryBuilder {
+        return this.whereDatePart(column, "DAY", operator, value);
+    }
+
+    public orWhereDay(column: string, operator: any, value?: any): QueryBuilder {
+        return this.whereDatePart(column, "DAY", operator, value, "or");
+    }
+
+    public whereMonth(column: string, operator: any, value?: any): QueryBuilder {
+        return this.whereDatePart(column, "MONTH", operator, value);
+    }
+
+    public orWhereMonth(column: string, operator: any, value?: any): QueryBuilder {
+        return this.whereDatePart(column, "MONTH", operator, value, "or");
+    }
+
+    public whereYear(column: string, operator: any, value?: any): QueryBuilder {
+        return this.whereDatePart(column, "YEAR", operator, value);
+    }
+
+    public orWhereYear(column: string, operator: any, value?: any): QueryBuilder {
+        return this.whereDatePart(column, "YEAR", operator, value, "or");
+    }
+
+    public whereTime(column: string, operator: any, value?: any): QueryBuilder {
+        return this.whereDatePart(column, "TIME", operator, value);
+    }
+
+    public orWhereTime(column: string, operator: any, value?: any): QueryBuilder {
+        return this.whereDatePart(column, "TIME", operator, value, "or");
+    }
+
+    public whereExists(
+        callback: QueryBuilderCallback,
+        not: boolean = false,
+        boolean: BooleanOperator = "and"
+    ): QueryBuilder {
+        const child: QueryBuilder = new QueryBuilder(undefined, {
+            grammar: this.grammar
+        });
+
+        callback(child);
+
+        this.wheres.push({
+            type: "exists",
+            nested: child,
+            not,
+            boolean
+        });
+
+        return this;
+    }
+
+    public whereNotExists(
+        callback: QueryBuilderCallback,
+        boolean: BooleanOperator = "and"
+    ): QueryBuilder {
+        return this.whereExists(callback, true, boolean);
+    }
+
+    public when(
+        condition: any,
+        callback: QueryBuilderCallback,
+        fallback: QueryBuilderCallback
+    ): QueryBuilder {
+        if (condition) return callback(this);
+
+        if (fallback) return fallback(this);
+
+        return this;
+    }
+
+    public unless(
+        condition: any,
+        callback: QueryBuilderCallback,
+        fallback: QueryBuilderCallback
+    ): QueryBuilder {
+        if (!condition) return callback(this);
+
+        if (fallback) return fallback(this);
+
+        return this;
+    }
+
+    public setRelationResolver(resolver: (name: string) => any): QueryBuilder {
+        this._relationResolver = resolver;
 
         return this;
     }
@@ -458,5 +838,45 @@ export default class QueryBuilder {
                 ...tailBindings
             ]
         };
+    }
+
+    protected whereNested(callback: any, boolean: BooleanOperator = "and"): QueryBuilder {
+        const child: QueryBuilder = new QueryBuilder(undefined, {
+            grammar: this.grammar
+        });
+
+        callback(child);
+
+        this.wheres.push({
+            type: "nested",
+            nested: child,
+            boolean
+        });
+
+        return this;
+    }
+
+    protected whereDatePart(
+        column: string,
+        fn: string,
+        operator: any,
+        value?: any,
+        boolean: BooleanOperator = "and"
+    ): QueryBuilder {
+        if (value === undefined && operator !== undefined) {
+            value = operator;
+            operator = "=";
+        }
+
+        this.wheres.push({
+            type: "date-part",
+            column,
+            operator,
+            value,
+            boolean,
+            dateFunction: fn
+        });
+
+        return this;
     }
 }

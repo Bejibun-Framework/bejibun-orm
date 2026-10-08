@@ -1,4 +1,7 @@
 import QueryBuilder from "@/builders/QueryBuilder";
+import Raw from "@/builders/Raw";
+
+export type BooleanOperator = "and" | "or";
 
 export interface WhereClause {
     type:
@@ -18,7 +21,7 @@ export interface WhereClause {
     column?: string;
     operator?: string;
     value?: any;
-    boolean?: "and" | "or";
+    boolean?: BooleanOperator;
     not?: boolean;
     columns?: Array<string>;
     values?: Array<any>;
@@ -35,7 +38,7 @@ export interface JoinClause {
     first: string;
     operator?: string;
     second?: any;
-    boolean?: "and" | "or";
+    boolean?: BooleanOperator;
     bindings?: Array<any>;
 }
 
@@ -96,3 +99,7 @@ export interface QueryLogEntry {
 }
 
 export type QueryListener = (entry: QueryLogEntry) => void;
+
+export type QueryBuilderCallback = (builder: QueryBuilder) => QueryBuilder;
+
+export type WhereInValues = Array<any> | QueryBuilder | QueryBuilderCallback | Raw;
