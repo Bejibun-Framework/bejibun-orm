@@ -15,6 +15,7 @@ import Grammar from "@/builders/Grammar";
 import DatabaseDriverEnum from "@/enums/DatabaseDriverEnum";
 import DB from "@/facades/DB";
 import Raw from "@/builders/Raw";
+import {RelationException} from "@/exceptions";
 
 export default class QueryBuilder {
     public readonly grammar: Grammar;
@@ -494,6 +495,74 @@ export default class QueryBuilder {
         return this;
     }
 
+    public has(relation: string, operator: string = ">=", count: number = 1): QueryBuilder {
+        this.relationExists(relation, false, "and", undefined, operator, count);
+
+        return this;
+    }
+
+    public orHas(relation: string, operator: string = ">=", count: number = 1): QueryBuilder {
+        this.relationExists(relation, false, "or", undefined, operator, count);
+
+        return this;
+    }
+
+    public whereHas(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+        this.relationExists(relation, false, "and", callback, operator, count);
+
+        return this;
+    }
+
+    public orWhereHas(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+        this.relationExists(relation, false, "or", callback, operator, count);
+
+        return this;
+    }
+
+    public doesntHave(relation: string, operator: string = ">=", count: number = 1): QueryBuilder {
+        this.relationExists(relation, true, "and", undefined, operator, count);
+
+        return this;
+    }
+
+    public orDoesntHave(relation: string, operator: string = ">=", count: number = 1): QueryBuilder {
+        this.relationExists(relation, true, "or", undefined, operator, count);
+
+        return this;
+    }
+
+    public whereDoesntHave(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+        this.relationExists(relation, true, "and", callback, operator, count);
+
+        return this;
+    }
+
+    public orWhereDoesntHave(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+        this.relationExists(relation, true, "or", callback, operator, count);
+
+        return this;
+    }
+
+    public whereRelation(relation: string, column: string, operator?: any, value?: any): QueryBuilder {
+        return this.whereHas(relation, (builder: QueryBuilder) => {
+            if (value === undefined && operator !== undefined) return builder.where(column, "=", operator);
+
+            if (operator !== undefined) return builder.where(column, operator, value);
+
+            return builder;
+        });
+    }
+
+    public orWhereRelation(relation: string, column: string, operator?: any, value?: any): QueryBuilder {
+        return this.orWhereHas(relation, (builder: QueryBuilder) => {
+            if (value === undefined && operator !== undefined) return builder.where(column, "=", operator);
+
+            if (operator !== undefined) return builder.where(column, operator, value);
+
+            return builder;
+        });
+    }
+
     protected clone(): QueryBuilder {
         const copy: QueryBuilder = new QueryBuilder(this.fromTable ?? undefined, {
             grammar: this.grammar
@@ -878,5 +947,20 @@ export default class QueryBuilder {
         });
 
         return this;
+    }
+
+    protected relationExists(relation: string, not: boolean, boolean: BooleanOperator, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): void {
+        if (!this._relationResolver) throw new RelationException(`Relation queries require a relation resolver -- use Model.query() / Model.${relation}().`);
+
+        const rel: any = this._relationResolver(relation);
+        const parentTable: string = this.fromTable!;
+
+        this.whereExists((sub: QueryBuilder) => {
+            rel.applyExistenceQuery(sub, parentTable, operator, count);
+
+            if (callback) callback(sub);
+
+            return sub;
+        }, not, boolean);
     }
 }

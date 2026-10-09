@@ -1,4 +1,5 @@
 import type {EagerLoadRelation, EagerLoadSpec, ModelEventCallback} from "@/types/model";
+import type {QueryBuilderCallback} from "@/types/query";
 import Logger from "@bejibun/logger";
 import Luxon from "@bejibun/utils/facades/Luxon";
 import Relation from "@/bases/Relation";
@@ -42,7 +43,7 @@ export default class Model<T = Record<string, any>> {
     protected static __events: Record<string, Array<ModelEventCallback>> = {};
     protected static __globalScopes: Array<{
         name?: string;
-        scope: (builder: QueryBuilder) => QueryBuilder;
+        scope: QueryBuilderCallback;
     }> = [];
 
     protected _attributes: Record<string, any> = {};
@@ -279,6 +280,77 @@ export default class Model<T = Record<string, any>> {
         return this.applyModelDecorators(builder);
     }
 
+    public static newQueryWithoutScopes(): QueryBuilder {
+        const builder: QueryBuilder = new QueryBuilder(this.tableName);
+
+        builder._modelClass = this;
+        builder.setRelationResolver((name: string) => this.resolveRelation(name));
+
+        return builder;
+    }
+
+    public static withoutGlobalScope(nameOrFunc: string | QueryBuilderCallback): QueryBuilder {
+        const builder: QueryBuilder = new QueryBuilder(this.tableName);
+
+        builder._modelClass = this;
+        builder.setRelationResolver((name: string) => this.resolveRelation(name));
+
+        const kept: Array<{
+            name?: string;
+            scope: QueryBuilderCallback;
+        }> = ((this as any).__globalScopes || []).filter((entry: any) => typeof nameOrFunc === "function" ? entry.scope !== nameOrFunc : entry.name !== nameOrFunc);
+
+        this.applyScopes(builder, kept);
+
+        return this.applyModelDecorators(builder);
+    }
+
+    public static withoutGlobalScopes(): QueryBuilder {
+        return this.newQueryWithoutScopes();
+    }
+
+    public static async withoutEvents<T = any>(callback: () => Promise<T> | T): Promise<T> {
+        const self: any = this as any;
+        const depth: number = self.__withoutEventsDepth || 0;
+        const own: boolean = Object.prototype.hasOwnProperty.call(this, "__events");
+        const previous: Record<string, Array<ModelEventCallback>> | undefined = self.__events;
+
+        self.__events = {};
+        self.__withoutEventsDepth = depth + 1;
+
+        try {
+            return await callback();
+        } finally {
+            self.__withoutEventsDepth = depth;
+
+            if (depth === 0) {
+                if (own || previous !== undefined) self.__events = previous;
+                else delete self.__events;
+            }
+        }
+    }
+
+    public static async withoutTimestamps<T = any>(callback: () => Promise<T> | T): Promise<T> {
+        const modelClass: any = this as any;
+        const previous: boolean = modelClass.timestampsEnabled;
+
+        modelClass.timestampsEnabled = false;
+
+        try {
+            return await callback();
+        } finally {
+            modelClass.timestampsEnabled = previous;
+        }
+    }
+
+    public static newQuery(): QueryBuilder {
+        return this.query();
+    }
+
+    public static async all(...relations: Array<string>): Promise<Array<any>> {
+        const models: Array<any> = await this.query()
+    }
+
     public static async all(...relations: Array<string>): Promise<Array<any>> {
         const models: Array<any> = await this.qu;
     }
@@ -302,7 +374,7 @@ export default class Model<T = Record<string, any>> {
         builder: QueryBuilder,
         scopes: Array<{
             name?: string;
-            scope: (builder: QueryBuilder) => QueryBuilder;
+            scope: QueryBuilderCallback;
         }>
     ): QueryBuilder {
         for (const entry of scopes) entry.scope(builder);
