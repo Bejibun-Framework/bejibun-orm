@@ -563,6 +563,66 @@ export default class QueryBuilder {
         });
     }
 
+    public whereLike(column: string, value: string, boolean: BooleanOperator = "and"): QueryBuilder {
+        this.wheres.push({
+            type: "like",
+            column,
+            operator: "LIKE",
+            value,
+            boolean
+        });
+
+        return this;
+    }
+
+    public whereILike(column: string, value: string, boolean: BooleanOperator = "and"): QueryBuilder {
+        this.wheres.push({
+            type: "like",
+            column,
+            operator: "ILIKE",
+            value,
+            boolean
+        });
+
+        return this;
+    }
+
+    public whereJsonContains(column: string, value: any, boolean: BooleanOperator = "and"): QueryBuilder {
+        const compiled: CompiledQuery = this.compileJsonContains(column, value);
+
+        this.wheres.push({
+            type: "json",
+            sql: compiled.sql,
+            bindings: compiled.bindings,
+            boolean
+        });
+
+        return this;
+    }
+
+    public orWhereJsonContains(column: string, value: any): QueryBuilder {
+        return this.whereJsonContains(column, value, "or");
+    }
+
+    public whereJsonLength(column: string, operator: any, value: any, boolean: BooleanOperator = "and"): QueryBuilder {
+        const g: Grammar = this.grammar;
+        const columnSql: string = g.driverName() === DatabaseDriverEnum.Pg ? `(${g.quote(column)})::jsonb` : g.quote(column);
+        const fn: string = g.driverName() === DatabaseDriverEnum.Mysql ? "JSON_LENGTH" : g.driverName() === DatabaseDriverEnum.Pg ? "JSONB_ARRAY_LENGTH" : "JSON_ARRAY_LENGTH";
+
+        this.wheres.push({
+            type: "json",
+            sql: `${fn}(${columnSql}) ${operator} ?`,
+            bindings: [value],
+            boolean
+        });
+
+        return this;
+    }
+
+    public orWhereJsonLength(column: string, operator: any, value: any): QueryBuilder {
+        return this.whereJsonLength(column, operator, value, "or");
+    }
+
     protected clone(): QueryBuilder {
         const copy: QueryBuilder = new QueryBuilder(this.fromTable ?? undefined, {
             grammar: this.grammar
@@ -658,15 +718,15 @@ export default class QueryBuilder {
         if (driver === DatabaseDriverEnum.Sqlite || driver === DatabaseDriverEnum.Sqlite3) {
             switch (fn) {
                 case "DAY":
-                    return `strftime('%d', ${quoted})`;
+                    return `STRFTIME('%d', ${quoted})`;
                 case "MONTH":
-                    return `strftime('%m', ${quoted})`;
+                    return `STRFTIME('%m', ${quoted})`;
                 case "YEAR":
-                    return `strftime('%Y', ${quoted})`;
+                    return `STRFTIME('%Y', ${quoted})`;
                 case "TIME":
-                    return `strftime('%H:%M:%S', ${quoted})`;
+                    return `STRFTIME('%H:%M:%S', ${quoted})`;
                 default:
-                    return `date(${quoted})`;
+                    return `DATE(${quoted})`;
             }
         }
 
@@ -907,6 +967,73 @@ export default class QueryBuilder {
                 ...tailBindings
             ]
         };
+    }
+
+    protected compileJsonContains(column: string, value: any): CompiledQuery {
+        const g: Grammar = this.grammar;
+        const driver: string = g.driverName();
+        const columnSql: string = g.quote(column);
+        const singleObject: boolean = value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 1;
+
+        if (singleObject) {
+            const [key, nestedValue]: [string, any] = Object.entries(value)[0];
+
+            switch (driver) {
+                case DatabaseDriverEnum.Pg:
+                    return {
+                        sql: `(${columnSql} #>> '{${key}}') = ?::text`,
+                        bindings: [nestedValue]
+                    };
+                case DatabaseDriverEnum.Mysql:
+                    return {
+                        sql: `JSON_CONTAINS(${columnSql}, ?, '$.${key}')`,
+                        bindings: [JSON.stringify(nestedValue)]
+                    };
+                default:
+                    return {
+                        sql: `JSON_EXTRACT(${columnSql}, ?) = ?`,
+                        bindings: [`$.${key}`, nestedValue]
+                    };
+            }
+        }
+
+        switch (driver) {
+            case DatabaseDriverEnum.Pg:
+                if (Array.isArray(value) || (value !== null && typeof value === "object")) return {
+                    sql: `(${columnSql}::jsonb @> ?::jsonb)`,
+                    bindings: [JSON.stringify(value)]
+                };
+
+                return {
+                    sql: `EXISTS (SELECT 1 FROM JSONB_ARRAY_ELEMENTS(${columnSql}::jsonb) e WHERE e.value::text = ?::text)`,
+                    bindings: [JSON.stringify(value)]
+                };
+            case DatabaseDriverEnum.Mysql:
+                return {
+                    sql: `JSON_CONTAINS(${columnSql}, ?)`,
+                    bindings: [JSON.stringify(value)]
+                };
+            default:
+                if (Array.isArray(value)) {
+                    const checks: Array<string> = [];
+                    const bindings: Array<any> = [];
+
+                    for (const item of value) {
+                        checks.push(`EXISTS (SELECT 1 FROM JSON_EACH(${columnSql}) WHERE json_each.value = ?)`);
+                        bindings.push(item !== null && typeof item === "object" ? JSON.stringify(item) : item);
+                    }
+
+                    return {
+                        sql: `(${checks.join(" AND ")})`,
+                        bindings
+                    };
+                }
+
+                return {
+                    sql: `EXISTS (SELECT 1 FROM JSON_EACH(${columnSql}) WHERE json_each.value = ?)`,
+                    bindings: [value]
+                };
+        }
     }
 
     protected whereNested(callback: any, boolean: BooleanOperator = "and"): QueryBuilder {

@@ -348,11 +348,7 @@ export default class Model<T = Record<string, any>> {
     }
 
     public static async all(...relations: Array<string>): Promise<Array<any>> {
-        const models: Array<any> = await this.query()
-    }
-
-    public static async all(...relations: Array<string>): Promise<Array<any>> {
-        const models: Array<any> = await this.qu;
+        const models: Array<any> = await this.query();
     }
 
     public static async with(...relations: Array<EagerLoadRelation>): Promise<Array<Model>> {
