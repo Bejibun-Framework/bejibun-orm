@@ -743,7 +743,15 @@ export default class QueryBuilder {
     }
 
     public orderByDesc(column: string): QueryBuilder {
-        this.orderBy(column, "desc");
+        return this.orderBy(column, "desc");
+    }
+
+    public oldest(column: string = "created_at"): QueryBuilder {
+        return this.orderBy(column);
+    }
+
+    public latest(column: string = "created_at"): QueryBuilder {
+        return this.orderByDesc(column);
     }
 
     public orderByRaw(sql: string, bindings: Array<any> = []): QueryBuilder {
@@ -774,6 +782,26 @@ export default class QueryBuilder {
         if (column) this.orderBy(column, direction);
 
         return this;
+    }
+
+    public limit(limit: number): QueryBuilder {
+        this.limitCount = limit;
+
+        return this;
+    }
+
+    public take(n: number): QueryBuilder {
+        return this.limit(n);
+    }
+
+    public offset(offset: number): QueryBuilder {
+        this.offsetCount = offset;
+
+        return this;
+    }
+
+    public skip(n: number): QueryBuilder {
+        return this.offset(n);
     }
 
     protected clone(): QueryBuilder {
