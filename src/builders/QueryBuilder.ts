@@ -804,6 +804,35 @@ export default class QueryBuilder {
         return this.offset(n);
     }
 
+    public lock(lock: boolean | string = true): QueryBuilder {
+        this.lockMode = lock;
+
+        return this;
+    }
+
+    public lockForUpdate(): QueryBuilder {
+        return this.lock();
+    }
+
+    public sharedLock(): QueryBuilder {
+        return this.lock(false);
+    }
+
+    public toSql(): CompiledQuery {
+        const signature: string | null = this.compileSignature();
+
+        if (signature !== null && this._compileCache && this._compileCache.signature === signature) return this._compileCache.result;
+
+        const result: CompiledQuery = this.compileSelect();
+
+        if (signature !== null) this._compileCache = {
+            signature,
+            result
+        };
+
+        return result;
+    }
+
     protected clone(): QueryBuilder {
         const copy: QueryBuilder = new QueryBuilder(this.fromTable ?? undefined, {
             grammar: this.grammar
@@ -1215,6 +1244,53 @@ export default class QueryBuilder {
                     bindings: [value]
                 };
         }
+    }
+
+    protected compileSignature(): string | null {
+        if (this._unions.length > 0) return null;
+
+        for (const where of this.wheres) {
+            if (where.type === "nested" || where.type === "exists" || where.type === "sub") return null;
+
+            if (where.value instanceof Raw) return null;
+        }
+
+        for (const join of this.joins) {
+            if (typeof join.second === "object" && join.second !== null) return null;
+        }
+
+        const valueText = (value: any): string => {
+            try {
+                return JSON.stringify(value);
+            } catch {
+                return String(value);
+            }
+        };
+
+        const whereText: string = this.wheres.map((where: WhereClause) => `${where.type}:${where.column ?? ""}:${where.operator ?? ""}:${valueText(where.value ?? where.sql ?? where.values ?? null)}`).join("|");
+        const joinText: string = this.joins.map((join: JoinClause) => `${join.type}:${join.table}:${join.first ?? ""}:${join.operator ?? ""}:${join.second ?? ""}:${Array.isArray(join.bindings) ? valueText(join.bindings) : ""}`).join("|");
+        const orderText: string = this.orders.map((order: OrderClause) => `${order.column ?? ""}:${order.direction ?? ""}`).join("|");
+        const havingText: string = this.havings.map((having: HavingClause | any) => `${having.type ?? ""}:${having.column ?? ""}:${having.operator ?? ""}:${valueText(having.value ?? having.sql ?? null)}`).join("|");
+
+        return [
+            this.fromTable,
+            this.columns.join(","),
+            this.distinct,
+            this.limitCount,
+            this.offsetCount,
+            this.lockMode,
+            this.wheres.length,
+            whereText,
+            JSON.stringify(this._fromBindings),
+            JSON.stringify(this._selectBindings),
+            JSON.stringify(this._groupBindings),
+            this.joins.length,
+            joinText,
+            orderText,
+            this.groups.join("|"),
+            this.havings.length,
+            havingText
+        ].join("\u0000");
     }
 
     protected whereNested(callback: any, boolean: BooleanOperator = "and"): QueryBuilder {
