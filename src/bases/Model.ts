@@ -348,11 +348,50 @@ export default class Model<T = Record<string, any>> {
     }
 
     public static async all(...relations: Array<string>): Promise<Array<any>> {
-        const models: Array<any> = await this.query();
+        const models: Array<any> = await this.query().get();
+
+        if (relations.length > 0) await this.eagerLoad(models, ...relations);
+
+        return models;
     }
 
     public static async with(...relations: Array<EagerLoadRelation>): Promise<Array<Model>> {
         const models: Array<any> = await this.all();
+
+        await this.eagerLoad(models, ...relations);
+
+        return models;
+    }
+
+    public static async withAll(): Promise<Array<any>> {
+        const model: any = new (this as any)();
+        const relationKeys: Array<string> = Object.getOwnPropertyNames((this as any).prototype)
+            .filter((name: string) =>
+                name !== "constructor" &&
+                typeof (this as any).prototype[name] === "function" &&
+                !name.startsWith("_") &&
+                !Object.getOwnPropertyDescriptor(Model.prototype, name)
+            );
+        const relationNames: Array<string> = relationKeys.filter((key: string) => {
+            try {
+                const accessor: any = model.relationAccessor(model, key);
+                const val: any = accessor();
+
+                return val instanceof Relation;
+            } catch {
+                return false;
+            }
+        });
+
+        return this.with(...relationNames);
+    }
+
+    public static async loadMissing(models: Array<any>, ...relations: Array<string>): Promise<Array<any>> {
+        const unloaded: Array<any> = models.filter((m: any) => !m.relationLoaded(relations[0]));
+
+        if (unloaded.length > 0) await this.eagerLoad(unloaded, ...relations);
+
+        return models;
     }
 
     protected static resolveRelation(name: string): Relation {
@@ -380,5 +419,9 @@ export default class Model<T = Record<string, any>> {
 
     protected static applyModelDecorators(builder: QueryBuilder): QueryBuilder {
         return builder;
+    }
+
+    protected relationLoaded(relation: string): boolean {
+        return relation in this._relations;
     }
 }
