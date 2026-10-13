@@ -5,6 +5,8 @@ export type BooleanOperator = "and" | "or";
 
 export type JoinType = "inner" | "left" | "right" | "cross" | "raw";
 
+export type OrderDirection = "asc" | "desc";
+
 export interface WhereClause {
     type:
         | "basic"
@@ -46,7 +48,7 @@ export interface JoinClause {
 
 export interface OrderClause {
     column: string;
-    direction: "asc" | "desc";
+    direction: OrderDirection;
     bindings?: Array<any>;
 }
 

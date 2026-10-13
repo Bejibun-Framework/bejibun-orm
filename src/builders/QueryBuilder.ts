@@ -5,7 +5,7 @@ import type {
     CompiledQuery,
     HavingClause,
     JoinClause, JoinType,
-    OrderClause,
+    OrderClause, OrderDirection,
     QueryBuilderCallback,
     UnionClause,
     WhereClause,
@@ -693,6 +693,85 @@ export default class QueryBuilder {
             second: sql,
             bindings
         });
+
+        return this;
+    }
+
+    public groupBy(...columns: Array<string | Array<string>>): QueryBuilder {
+        this.groups.push(...(columns.flat() as Array<string>));
+
+        return this;
+    }
+
+    public groupByRaw(sql: string, bindings: Array<any> = []): QueryBuilder {
+        this.groups.push(sql);
+        this._groupBindings.push(...bindings);
+
+        return this;
+    }
+
+    public having(column: string, operator?: any, value?: any): QueryBuilder {
+        if (arguments.length === 2) {
+            value = operator;
+            operator = "=";
+        }
+
+        this.havings.push({
+            sql: `${this.grammar.quote(column)} ${operator} ?`,
+            bindings: [value]
+        });
+
+        return this;
+    }
+
+    public havingRaw(sql: string, bindings: Array<any> = []): QueryBuilder {
+        this.havings.push({
+            sql,
+            bindings
+        });
+
+        return this;
+    }
+
+    public orderBy(column: string, direction: OrderDirection = "asc"): QueryBuilder {
+        this.orders.push({
+            column,
+            direction
+        });
+
+        return this;
+    }
+
+    public orderByDesc(column: string): QueryBuilder {
+        this.orderBy(column, "desc");
+    }
+
+    public orderByRaw(sql: string, bindings: Array<any> = []): QueryBuilder {
+        this.orders.push({
+            column: sql,
+            direction: "asc",
+            bindings
+        });
+
+        return this;
+    }
+
+    public inRandomOrder(seed?: string): QueryBuilder {
+        const driver: string = this.grammar.driverName();
+        const column: string = driver === DatabaseDriverEnum.Pg ? (seed ? `RAND(${seed})` : "RAND()") : "RANDOM()";
+
+        this.orders.push({
+            column,
+            direction: "asc"
+        });
+
+        return this;
+    }
+
+    public reorder(column?: string, direction: OrderDirection = "asc"): QueryBuilder {
+        this.orders = [];
+
+        if (column) this.orderBy(column, direction);
 
         return this;
     }
