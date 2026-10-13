@@ -4,7 +4,7 @@ import type {
     BooleanOperator,
     CompiledQuery,
     HavingClause,
-    JoinClause,
+    JoinClause, JoinType,
     OrderClause,
     QueryBuilderCallback,
     UnionClause,
@@ -621,6 +621,80 @@ export default class QueryBuilder {
 
     public orWhereJsonLength(column: string, operator: any, value: any): QueryBuilder {
         return this.whereJsonLength(column, operator, value, "or");
+    }
+
+    public join(table: string, first: string, operator?: string, second?: any, type: JoinType = "inner"): QueryBuilder {
+        if (typeof operator === "undefined") operator = "=";
+
+        this.joins.push({
+            type,
+            table,
+            first,
+            operator,
+            second
+        });
+
+        return this;
+    }
+
+    public leftJoin(table: string, first: string, operator?: string, second?: any): QueryBuilder {
+        return this.join(table, first, operator, second, "left");
+    }
+
+    public rightJoin(table: string, first: string, operator?: string, second?: any): QueryBuilder {
+        return this.join(table, first, operator, second, "right");
+    }
+
+    public crossJoin(table: string, first: string, operator?: string, second?: any): QueryBuilder {
+        if (first) return this.join(table, first, operator, second, "cross");
+
+        this.joins.push({
+            type: "cross",
+            table,
+            first: "",
+            operator: "",
+            second: ""
+        });
+
+        return this
+    }
+
+    public joinSub(query: QueryBuilder | QueryBuilderCallback, as: string, first: string, operator: string = "=", second?: any, type: JoinType = "inner"): QueryBuilder {
+        const subQuery: QueryBuilder = typeof query === "function" ? (() => {
+            const q: QueryBuilder = new QueryBuilder(undefined, {
+                grammar: this.grammar
+            });
+
+            query(q);
+
+            return q;
+        })() : query;
+
+        const compiled: CompiledQuery = subQuery.compileSelect();
+
+        this.joins.push({
+            type,
+            table: `(${compiled.sql}) AS ${this.grammar.quote(as)}`,
+            first: this.grammar.quote(first),
+            operator,
+            second: second ? this.grammar.quote(second) : undefined,
+            bindings: [...compiled.bindings];
+        });
+
+        return this;
+    }
+
+    public joinRaw(sql: string, bindings: Array<any> = []): QueryBuilder {
+        this.joins.push({
+            type: "raw",
+            table: "",
+            first: "",
+            operator: "",
+            second: sql,
+            bindings
+        });
+
+        return this;
     }
 
     protected clone(): QueryBuilder {

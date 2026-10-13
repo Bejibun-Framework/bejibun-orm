@@ -3,6 +3,8 @@ import Raw from "@/builders/Raw";
 
 export type BooleanOperator = "and" | "or";
 
+export type JoinType = "inner" | "left" | "right" | "cross" | "raw";
+
 export interface WhereClause {
     type:
         | "basic"
@@ -33,7 +35,7 @@ export interface WhereClause {
 }
 
 export interface JoinClause {
-    type: string;
+    type: JoinType;
     table: string;
     first: string;
     operator?: string;
