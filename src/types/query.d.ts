@@ -7,6 +7,8 @@ export type JoinType = "inner" | "left" | "right" | "cross" | "raw";
 
 export type OrderDirection = "asc" | "desc";
 
+export type AggregateType = "count" | "sum" | "max" | "min" | "avg" | "exists";
+
 export interface WhereClause {
     type:
         | "basic"

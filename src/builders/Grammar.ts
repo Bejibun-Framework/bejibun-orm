@@ -2,7 +2,7 @@ import type {Database} from "bun:sqlite";
 import type {Connection} from "@/types/context";
 import type {PreparedStatement} from "@/types/grammar";
 import ConnectionBuilder, {
-    DRIVER_TAG,
+    DRIVER_TAG, readBigIntAsNumber,
     readStampedDriver,
     trackPooledStatement
 } from "@/builders/ConnectionBuilder";
@@ -290,6 +290,12 @@ export default class Grammar {
 
     public driverName(): string {
         return this.driver;
+    }
+
+    public returnsBigIntAsNumber(): boolean {
+        const active: Connection = currentTransaction() ?? this.connection;
+
+        return readBigIntAsNumber(active as object);
     }
 
     protected quotePart(part: string): string {

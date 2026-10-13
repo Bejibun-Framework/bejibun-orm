@@ -31,6 +31,10 @@ export const stampBigIntAsNumber = (connection: object, enabled: boolean): void 
     bigIntAsNumberStamps.set(connection, enabled);
 };
 
+export const readBigIntAsNumber = (connection: object): boolean => {
+    return bigIntAsNumberStamps.get(connection) === true;
+};
+
 export const trackPooledStatement = (promise: Promise<unknown>): void => {
     const drain: Promise<void> = new Promise<void>((resolve: any) => {
         void Promise.resolve(promise).then(() => resolve(), () => resolve());

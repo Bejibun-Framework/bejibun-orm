@@ -1,6 +1,7 @@
 import type {Database} from "bun:sqlite";
 import type {EagerLoadSpec} from "@/types/model";
 import type {
+    AggregateType,
     BooleanOperator,
     CompiledQuery,
     HavingClause,
@@ -804,6 +805,121 @@ export default class QueryBuilder {
         return this.offset(n);
     }
 
+    public async get<T = Record<string, any>>(): Promise<Array<T>> {
+        const rows: Array<Record<string, any>> = await this.fetch<Record<string, any>>();
+
+        if (this._modelClass) {
+            const models: Array<any> = await this._modelClass.hydrate(rows);
+
+            if (this._eagerLoads.length > 0) await this._modelClass.eagerLoad(models, ...this._eagerLoads);
+
+            return models as Array<T>;
+        }
+
+        return rows as Array<T>;
+    }
+
+    public async getRaw<T = Record<string, any>>(): Promise<Array<T>> {
+        return this.fetch<T>();
+    }
+
+    public with(...args: Array<any>): QueryBuilder {
+        const specs: Array<EagerLoadSpec> = [];
+
+        let pending: string | undefined;
+
+        const flush = (): void => {
+            if (pending) {
+                specs.push({
+                    relation: pending
+                });
+
+                pending = undefined;
+            }
+        };
+
+        for (const arg of args) {
+            if (typeof arg === "function") {
+                if (!pending) throw new RelationException("with() constraint callback must follow a relation name.");
+
+                specs.push({
+                    relation: pending,
+                    constraints: arg
+                });
+
+                pending = undefined;
+
+                continue;
+            }
+
+            if (typeof arg === "string") {
+                flush();
+
+                pending = arg;
+
+                continue;
+            }
+
+            if (Array.isArray(arg)) {
+                flush();
+
+                for (const item of arg) {
+                    if (typeof item === "string") specs.push({
+                        relation: item
+                    });
+                    else specs.push(item);
+                }
+
+                continue;
+            }
+
+            if (arg && typeof arg === "object") {
+                flush();
+
+                for (const key of Object.keys(arg)) {
+                    const value: any = arg[key];
+
+                    specs.push(typeof value === "function" ? {
+                        relation: key,
+                        constraints: value
+                    } : {
+                        relation: key
+                    });
+                }
+            }
+        }
+
+        flush();
+
+        this._eagerLoads.push(...specs);
+
+        return this;
+    }
+
+    public withCount(relations: Array<string> | Record<string, any>): QueryBuilder {
+        return this.addAggregate("count", relations);
+    }
+
+    public withSum(relations: Array<string> | Record<string, any>, column?: string): QueryBuilder {
+        return this.addAggregate("sum", relations, column);
+    }
+
+    public withMax(relations: Array<string> | Record<string, any>, column?: string): QueryBuilder {
+        return this.addAggregate("max", relations, column);
+    }
+
+    public withMin(relations: Array<string> | Record<string, any>, column?: string): QueryBuilder {
+        return this.addAggregate("min", relations, column);
+    }
+
+    public withAvg(relations: Array<string> | Record<string, any>, column?: string): QueryBuilder {
+        return this.addAggregate("avg", relations, column);
+    }
+
+    public withExists(relations: Array<string> | Record<string, any>): QueryBuilder {
+        return this.addAggregate("exists", relations);
+    }
+
     public lock(lock: boolean | string = true): QueryBuilder {
         this.lockMode = lock;
 
@@ -1346,5 +1462,85 @@ export default class QueryBuilder {
 
             return sub;
         }, not, boolean);
+    }
+
+    protected async fetch<T = Record<string, any>>(): Promise<Array<T>> {
+        const compiled: CompiledQuery = this.toSql();
+        const rows: Array<Record<string, any>> = await this.grammar.run<Array<Record<string, any>>>(compiled.sql, compiled.bindings);
+
+        if (this._withAggregateAliases.length > 0) {
+            for (const row of rows) {
+                for (const alias of this._withAggregateAliases) {
+                    const raw: any = row[alias];
+
+                    if (typeof raw === "string" && /^-?\d+(\.\d+)?$/.test(raw)) row[alias] = Number(raw);
+                    else if (typeof raw === "boolean") row[alias] = raw ? 1 : 0;
+                }
+            }
+        }
+
+        if (this.grammar.returnsBigIntAsNumber()) {
+            for (const row of rows) {
+                for (const key of Object.keys(row)) {
+                    const raw: any = row[key];
+
+                    if (
+                        typeof raw === "string" &&
+                        /^-?\d+$/.test(raw) &&
+                        0 <= raw.length &&
+                        raw.length <= 17
+                    ) {
+                        const numeric: number = Number(raw);
+
+                        if (Number.isSafeInteger(numeric)) row[key] = numeric;
+                    }
+                }
+            }
+        }
+
+        return rows as Array<T>;
+    }
+
+    protected addAggregate(aggregate: AggregateType, relations: Array<string> | Record<string, any>, column?: string): QueryBuilder {
+        const entries: Array<[string, any]> = Array.isArray(relations) ? relations.map((name: string) => [name, {}]) : Object.entries(relations);
+
+        for (const [name, opts] of entries) {
+            const g: Grammar = this.grammar;
+            const alias: string = aggregate === "exists" ? `${name}_exists` : aggregate === "count" ? `${name}_count` : `${name}_${aggregate}_${opts.column || column || "id"}`;
+
+            this._withAggregateAliases.push(alias);
+
+            if (opts.query) {
+                this.columns.push(`${opts.query} AS ${g.quote(alias)}`);
+
+                continue;
+            }
+
+            const aggColumn: string = opts.column || column || "id";
+            const table: string = opts.table || name;
+            const foreignKey: string = opts.foreignKey || "parent_id";
+            const localKey: string = opts.localKey || "id";
+            const quotedTable: string = g.quote(table);
+            const owner: string = `${g.quote(this.fromTable!)}.${g.quote(localKey)}`;
+            const joinOn: string = `${quotedTable}.${g.quote(foreignKey)} = ${owner}`;
+
+            let expression: string;
+
+            switch (aggregate) {
+                case "exists":
+                    expression = `EXISTS (SELECT 1 FROM ${quotedTable} WHERE ${joinOn})`;
+                    break;
+                case "count":
+                    expression = `(SELECT COUNT(*) FROM  ${quotedTable} WHERE ${joinOn})`;
+                    break;
+                default:
+                    expression = `(SELECT COALESCE(${aggregate.toUpperCase()}(${g.quote(aggColumn)}), 0) FROM ${quotedTable} WHERE ${joinOn})`;
+                    break;
+            }
+
+            this.columns.push(`${expression} AS ${g.quote(alias)}`);
+        }
+
+        return this;
     }
 }
