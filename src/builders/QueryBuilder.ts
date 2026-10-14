@@ -16,7 +16,9 @@ import Grammar from "@/builders/Grammar";
 import DatabaseDriverEnum from "@/enums/DatabaseDriverEnum";
 import DB from "@/facades/DB";
 import Raw from "@/builders/Raw";
-import {RelationException} from "@/exceptions";
+import RecordNotFoundException from "@/exceptions/RecordNotFoundException";
+import RelationException from "@/exceptions/RelationException";
+import Collection from "@/bases/Collection";
 
 export default class QueryBuilder {
     public readonly grammar: Grammar;
@@ -920,6 +922,110 @@ export default class QueryBuilder {
         return this.addAggregate("exists", relations);
     }
 
+    public async first<T = Record<string, any>>(): Promise<T | undefined> {
+        const rows: Array<T> = await this.clone().limit(1).get<T>();
+
+        return rows[0];
+    }
+
+    public async firstOrFail<T = Record<string, any>>(error?: any): Promise<T> {
+        const row: T | undefined = await this.first<T>();
+
+        if (!row) {
+            if (typeof error === "function") throw error();
+
+            if (Array.isArray(error)) throw new error[0](...error.slice(1));
+
+            if (error) throw error;
+
+            throw new RecordNotFoundException("No result was found for the query.");
+        }
+
+        return row;
+    }
+
+    public async find<T = Record<string, any>>(id: any, columns: Array<string> = ["*"]): Promise<T | undefined> {
+        return this.clone()
+            .select(...columns)
+            .where(this._modelClass?.idColumn ?? "id", "=", id)
+            .first<T>();
+    }
+
+    public async findOrFail<T = Record<string, any>>(id: any, columns: Array<string> = ["*"], error?: any): Promise<T> {
+        const row: T | undefined = await this.find<T>(id, columns);
+
+        if (row !== undefined) return row;
+
+        if (typeof error === "function") throw error();
+
+        if (Array.isArray(error)) throw new error[0](...error.slice(1));
+
+        if (error) throw error;
+
+        throw new RecordNotFoundException(
+            this._modelClass
+                ? `No result for model [${this._modelClass.tableName}] with id [${id}].`
+                : `No result for query [${this.fromTable}] with id [${id}].`
+        );
+    }
+
+    public async col<T = Record<string, any>>(): Promise<Collection<T>> {
+        return new Collection<T>(await this.get<T>());
+    }
+
+    public async value(column: string): Promise<any> {
+        const rows: Array<Record<string, any>> = await this.clone()
+            .select(column)
+            .limit(1)
+            .fetch<Record<string, any>>();
+
+        const row: Record<string, any> | undefined = rows[0];
+
+        return row ? row[column] : undefined;
+    }
+
+    public async pluck(column: string, key?: string): Promise<Array<any> | Record<string, any>> {
+        const cols: Array<string> = key ? [column, key] : [column];
+        const rows: Array<Record<string, any>> = await this.clone().select(...cols).fetch<Record<string, any>>();
+
+        if (!key) return rows.map((row: Record<string, any>) => row[column]);
+
+        const result: Record<string, any> = Object.create(null) as Record<string, any>;
+
+        for (const row of rows) {
+            result[row[key]] = row[column];
+        }
+
+        return result;
+    }
+
+    public async pluckSorted(column: string): Promise<Array<any>> {
+        const rows: Array<Record<string, any>> = await this.clone()
+            .select(column)
+            .orderBy(column)
+            .fetch<Record<string, any>>();
+
+        return rows.map((row: Record<string, any>) => row[column]);
+    }
+
+    public async count(column: any = "*"): Promise<number> {
+        const sub: QueryBuilder = this.clone();
+
+        sub.limitCount = null;
+        sub.offsetCount = null;
+        sub.orders = [];
+        sub.lockMode = null;
+
+        const inner: CompiledQuery = sub.compileSelect();
+        const rows: Array<Record<string, any>> = await this.grammar.run(`SELECT COUNT(*) AS aggregate FROM (${inner.sql}) AS ${this.grammar.quote("bejibun_count")}`, inner.bindings);
+
+        return this.normalizeCount(rows[0]?.aggregate);
+    }
+
+    public async exists(): Promise<boolean> {
+        return (await this.count()) > 0;
+    }
+
     public lock(lock: boolean | string = true): QueryBuilder {
         this.lockMode = lock;
 
@@ -1542,5 +1648,17 @@ export default class QueryBuilder {
         }
 
         return this;
+    }
+
+    protected normalizeCount(value: any): number {
+        if (typeof value === "number") return value;
+
+        if (typeof value === "string") {
+            const parsed: number = parseInt(value, 10);
+
+            return Number.isNaN(parsed) ? 0 : parsed;
+        }
+
+        return Number(value) || 0;
     }
 }

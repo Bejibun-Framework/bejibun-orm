@@ -1,10 +1,11 @@
-import type {EagerLoadRelation, EagerLoadSpec, ModelEventCallback} from "@/types/model";
+import type {EagerLoadRelation, EagerLoadSpec, ModelEvent, ModelEventCallback} from "@/types/model";
 import type {QueryBuilderCallback} from "@/types/query";
 import Logger from "@bejibun/logger";
 import Luxon from "@bejibun/utils/facades/Luxon";
 import Relation from "@/bases/Relation";
 import QueryBuilder from "@/builders/QueryBuilder";
 import RelationException from "@/exceptions/RelationException";
+import {DatabaseDriverEnum} from "@/enums";
 
 const MODEL_PROXY_HANDLERS: ProxyHandler<Model<any>> = {
     get: (target: Model<any>, prop: PropertyKey, receiver: any): any => {
@@ -66,7 +67,50 @@ export default class Model<T = Record<string, any>> {
         this._attributes[key] = this.castIncoming(key, value);
     }
 
-    public fill(attributes: Record<string, any>): this {
+    public getAttribute(key: string): any {
+        return this._attributes[key];
+    }
+
+    public get(key: string): any {
+        return this.getAttribute(key);
+    }
+
+    public attribute<K extends keyof T & string>(key: K): T[K] {
+        return this._attributes[key] as T[K];
+    }
+
+    public attributes(): Partial<T> {
+        return {
+            ...this._attributes
+        } as Partial<T>;
+    }
+
+    public static preventLazyLoading(value: boolean = true): void {
+        this.lazyLoadingPreventionEnabled = value;
+    }
+
+    public static now(): string {
+        return Luxon.DateTime.now().toFormat(this.dateFormat || "yyyy-MM-dd HH:mm:ss.SSS");
+    }
+
+    public async save(): Promise<Model> {
+        const tail: Promise<void> = this._saveChain ?? Promise.resolve();
+        let done!: () => void;
+        const slot: Promise<void> = new Promise<void>(resolve => (done = resolve));
+        const link: Promise<void> = tail.then(() => slot);
+
+        this._saveChain = link;
+
+        await tail;
+
+        try {
+            let persisted: boolean;
+
+            if (!this._exists) persisted = await ins
+        }
+    }
+
+    public fill(attributes: Record<string, any>): Model<T> {
         const allowed: Array<string> = (this.constructor as any).fillable;
         const guarded: Array<string> = (this.constructor as any).guarded || [];
 
@@ -83,98 +127,12 @@ export default class Model<T = Record<string, any>> {
         return this;
     }
 
-    protected proxyHandlers(): ProxyHandler<Model<any>> {
-        return;
-    }
-
-    protected castIncoming(key: string, value: any): any {
-        const cast: string | undefined = (this.constructor as any).casts?.[key];
-
-        if (!cast || value === null || value === undefined) return value;
-
-        switch (cast) {
-            case "int":
-            case "integer":
-                return parseInt(value, 10);
-            case "float":
-            case "double":
-            case "decimal":
-                return parseFloat(value);
-            case "bool":
-            case "boolean":
-                return value === true || value === 1 || value === "1" || value === "true";
-            case "json":
-            case "array":
-            case "object":
-                return typeof value === "string" ? JSON.parse(value) : value;
-            case "datetime":
-            case "timestamp":
-                return typeof value === "string" || typeof value === "number"
-                    ? Luxon.DateTime.fromJSDate(new Date(value))
-                    : value;
-            default:
-                return value;
+    public forceFill(attributes: Record<string, any>): Model<T> {
+        for (const [key, value] of Object.entries(attributes)) {
+            this.setAttribute(key, value);
         }
-    }
 
-    protected relationAccessor(target: any, key: string): any {
-        const method: any = (target.constructor?.prototype || {})[key];
-
-        const accessor: any = (...args: Array<any>) => {
-            const relation: any = Reflect.apply(method, target, args);
-
-            if (relation instanceof Relation) relation.name = key;
-
-            return relation;
-        };
-
-        accessor.__isRelation = (): boolean => {
-            return method instanceof Relation;
-        };
-
-        accessor.then = (resolve: any, reject: any): Promise<any> => {
-            const modelClass: any = (target as any).constructor;
-
-            if (modelClass?.lazyLoadingPreventionEnabled === true) {
-                const error: Error = new RelationException(
-                    `Attempted to lazy load relation [${key}] on [${modelClass.name}] but lazy loading has been prevented.`
-                );
-
-                reject(error);
-
-                return Promise.resolve();
-            }
-
-            const relation: any = Reflect.apply(method, target, []);
-
-            relation.name = key;
-
-            return relation.then(resolve, reject);
-        };
-
-        return accessor;
-    }
-
-    protected callableRelation(target: any, key: string, cached: Array<any>): Array<any> {
-        const accessor: any = this.relationAccessor(target, key);
-
-        const proxy: any = new Proxy(accessor, {
-            get: (t: any, prop: any): any => {
-                if (prop === "then") {
-                    return (resolve: any, reject: any): Promise<any> => {
-                        return Promise.resolve(cached).then(resolve, reject);
-                    };
-                }
-
-                if (prop in cached) return Reflect.get(t, prop, cached);
-
-                const value: any = Reflect.get(t, prop, t);
-
-                return typeof value === "function" ? value.bind(t) : value;
-            }
-        });
-
-        return proxy as Array<any>;
+        return this;
     }
 
     public async load(relation: string): Promise<any> {
@@ -394,6 +352,100 @@ export default class Model<T = Record<string, any>> {
         return models;
     }
 
+    protected proxyHandlers(): ProxyHandler<Model<any>> {
+        return;
+    }
+
+    protected castIncoming(key: string, value: any): any {
+        const cast: string | undefined = (this.constructor as any).casts?.[key];
+
+        if (!cast || value === null || value === undefined) return value;
+
+        switch (cast) {
+            case "int":
+            case "integer":
+                return parseInt(value, 10);
+            case "float":
+            case "double":
+            case "decimal":
+                return parseFloat(value);
+            case "bool":
+            case "boolean":
+                return value === true || value === 1 || value === "1" || value === "true";
+            case "json":
+            case "array":
+            case "object":
+                return typeof value === "string" ? JSON.parse(value) : value;
+            case "datetime":
+            case "timestamp":
+                return typeof value === "string" || typeof value === "number"
+                    ? Luxon.DateTime.fromJSDate(new Date(value))
+                    : value;
+            default:
+                return value;
+        }
+    }
+
+    protected relationAccessor(target: any, key: string): any {
+        const method: any = (target.constructor?.prototype || {})[key];
+
+        const accessor: any = (...args: Array<any>) => {
+            const relation: any = Reflect.apply(method, target, args);
+
+            if (relation instanceof Relation) relation.name = key;
+
+            return relation;
+        };
+
+        accessor.__isRelation = (): boolean => {
+            return method instanceof Relation;
+        };
+
+        accessor.then = (resolve: any, reject: any): Promise<any> => {
+            const modelClass: any = (target as any).constructor;
+
+            if (modelClass?.lazyLoadingPreventionEnabled === true) {
+                const error: Error = new RelationException(
+                    `Attempted to lazy load relation [${key}] on [${modelClass.name}] but lazy loading has been prevented.`
+                );
+
+                reject(error);
+
+                return Promise.resolve();
+            }
+
+            const relation: any = Reflect.apply(method, target, []);
+
+            relation.name = key;
+
+            return relation.then(resolve, reject);
+        };
+
+        return accessor;
+    }
+
+    protected callableRelation(target: any, key: string, cached: Array<any>): Array<any> {
+        const accessor: any = this.relationAccessor(target, key);
+
+        const proxy: any = new Proxy(accessor, {
+            get: (t: any, prop: any): any => {
+                if (prop === "then") {
+                    return (resolve: any, reject: any): Promise<any> => {
+                        return Promise.resolve(cached).then(resolve, reject);
+                    };
+                }
+
+                if (prop in cached) return Reflect.get(t, prop, cached);
+
+                const value: any = Reflect.get(t, prop, t);
+
+                return typeof value === "function" ? value.bind(t) : value;
+            }
+        });
+
+        return proxy as Array<any>;
+    }
+
     protected static resolveRelation(name: string): Relation {
         const model: any = new (this as any)();
         const accessor: any = model.relationAccessor(model, name);
@@ -423,5 +475,97 @@ export default class Model<T = Record<string, any>> {
 
     protected relationLoaded(relation: string): boolean {
         return relation in this._relations;
+    }
+
+    protected async fireModelEvent(event: ModelEvent): Promise<boolean> {
+        const modelClass: typeof Model<T> = this.constructor as typeof Model<T>;
+        const callbacks: Array<ModelEventCallback> = modelClass.__events?.[event] || [];
+
+        for (const callback of callbacks) {
+            const result: boolean | void | Promise<boolean | void> = await callback(this);
+
+            if (result === false) return false;
+        }
+
+        return true;
+    }
+
+    protected castOutgoing(key: string, value: any): any {
+        const cast: string | undefined = (this.constructor as any).casts?.[key];
+
+        if (!cast) return value;
+
+        switch (cast) {
+            case "json":
+            case "array":
+            case "object":
+                return typeof value === "string" ? value : JSON.stringify(value);
+            case "datetime":
+            case "timestamp":
+                if (value && typeof value.toFormat === "function") return value.toFormat((this.constructor as any).dateFormat || "yyyy-MM-dd HH:mm:ss");
+
+                return value;
+            default:
+                return value;
+        }
+    }
+
+    protected rehydrateJsonForPg(outgoing: Record<string, any>): void {
+        const casts: Record<string, string> | undefined = (this.constructor as any).casts;
+
+        if (!casts) return;
+
+        for (const [key, value] of Object.entries(outgoing)) {
+            const cast: string | undefined = casts[key];
+
+            if (
+                (
+                    cast === "json" ||
+                    cast === "array" ||
+                    cast === "object"
+                ) &&
+                typeof value === "string"
+            ) {
+                try {
+                    outgoing[key] = JSON.parse(value);
+                } catch {
+                    outgoing[key] = value;
+                }
+            }
+        }
+    }
+
+    protected async insert(): Promise<boolean> {
+        const modelClass: typeof Model = this.constructor as typeof Model;
+
+        if ((await this.fireModelEvent("saving")) === false) return false;
+
+        if ((await this.fireModelEvent("creating")) === false) return false;
+
+        const attributes: Record<string, any> = this.attributes();
+
+        if (modelClass.timestampsEnabled && modelClass.createdColumn) {
+            if (!attributes[modelClass.createdColumn]) attributes[modelClass.createdColumn] = modelClass.now();
+        }
+
+        if (modelClass.timestampsEnabled && modelClass.updatedColumn) {
+            if (!attributes[modelClass.updatedColumn]) attributes[modelClass.updatedColumn] = modelClass.now();
+        }
+
+        if (modelClass.lockVersionColumn && attributes[modelClass.lockVersionColumn] === undefined) {
+            attributes[modelClass.lockVersionColumn] = 1;
+        }
+
+        const outgoing: Record<string, any> = {};
+
+        for (const [key, value] of Object.entries(attributes)) {
+            outgoing[key] = this.castOutgoing(key, value);
+        }
+
+        const builder: QueryBuilder = new QueryBuilder(modelClass.tableName);
+
+        if (builder.grammar.driverName() === DatabaseDriverEnum.Pg) this.rehydrateJsonForPg(outgoing);
+
+        const id: any = await builder.ins
     }
 }
