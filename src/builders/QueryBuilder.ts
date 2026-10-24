@@ -19,6 +19,7 @@ import Raw from "@/builders/Raw";
 import RecordNotFoundException from "@/exceptions/RecordNotFoundException";
 import RelationException from "@/exceptions/RelationException";
 import Collection from "@/bases/Collection";
+import {currentTransaction} from "@/contexts/TransactionContext";
 
 export default class QueryBuilder {
     public readonly grammar: Grammar;
@@ -1026,6 +1027,39 @@ export default class QueryBuilder {
         return (await this.count()) > 0;
     }
 
+    public async max(column: string): Promise<any> {
+        return this.aggregate("MAX", column);
+    }
+
+    public async min(column: string): Promise<any> {
+        return this.aggregate("MIN", column);
+    }
+
+    public async sum(column: string): Promise<any> {
+        return this.aggregate("SUM", column);
+    }
+
+    public async avg(column: string): Promise<any> {
+        return this.aggregate("AVG", column);
+    }
+
+    public async insert(payload: Record<string, any> | Array<Record<string, any>>): Promise<any> {
+        const rows: Array<Record<string, any>> = Array.isArray(payload) ? payload : [payload];
+
+        if (rows.length === 0) return 0;
+
+        const columns: Array<string> = Object.keys(rows[0]);
+        const sql: Array<string> = rows.map(() => `(${columns.map(() => "?").join(", ")})`);
+        const bindings: Array<any> = rows.flatMap((row: Record<string, any>) => columns.map((column: string) => row[column]));
+        const statement: string = `INSERT INTO ${this.grammar.quote(this.fromTable!)} (${columns.map((column: string) => this.grammar.quote(column)).join(", ")}) VALUES ${sql.join(", ")}`;
+
+        return this.grammar.run(statement, bindings);
+    }
+
+    public async insertGetId(payload: Record<string, any>, key: string = "id"): Promise<any> {
+        if (this.grammar.driverName() === DatabaseDriverEnum.Mysql) return mysq
+    }
+
     public lock(lock: boolean | string = true): QueryBuilder {
         this.lockMode = lock;
 
@@ -1650,6 +1684,17 @@ export default class QueryBuilder {
         return this;
     }
 
+    protected async aggregate(fn: Uppercase<Exclude<AggregateType, "exists">>, column: string): Promise<any> {
+        const rows: Array<Record<string, any>> = await this.clone()
+            .select(`${fn}(${this.grammar.quote(column)}) AS aggregate`)
+            .fetch<Record<string, any>>();
+        const value: any = rows[0]?.aggregate;
+
+        if (typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value)) return Number(value);
+
+        return value;
+    }
+
     protected normalizeCount(value: any): number {
         if (typeof value === "number") return value;
 
@@ -1660,5 +1705,11 @@ export default class QueryBuilder {
         }
 
         return Number(value) || 0;
+    }
+
+    protected async mysqlPinned<T>(task: () => Promise<T>): Promise<T> {
+        if (this.grammar.driverName() !== DatabaseDriverEnum.Mysql || currentTransaction()) return task();
+
+        return DB.tra
     }
 }

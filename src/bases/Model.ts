@@ -7,22 +7,6 @@ import QueryBuilder from "@/builders/QueryBuilder";
 import RelationException from "@/exceptions/RelationException";
 import {DatabaseDriverEnum} from "@/enums";
 
-const MODEL_PROXY_HANDLERS: ProxyHandler<Model<any>> = {
-    get: (target: Model<any>, prop: PropertyKey, receiver: any): any => {
-        if (typeof prop === "symbol") return Reflect.get(target, prop, receiver);
-
-        const key: string = prop as string;
-
-        if (key.startsWith("_")) return Reflect.get(target, key, receiver);
-
-        if (Object.prototype.hasOwnProperty.call((target as any)._relations, key)) {
-            const cached: any = (target as any)._relations[key];
-
-            if (Array.isArray(cached)) return (target as any).call;
-        }
-    }
-};
-
 export default class Model<T = Record<string, any>> {
     public static tableName: string;
     public static idColumn: string = "id";
@@ -60,7 +44,7 @@ export default class Model<T = Record<string, any>> {
     public constructor(attributes: Record<string, any> = {}) {
         this.fill(attributes);
 
-        return new Proxy(this);
+        return new Proxy(this, this.proxyHandlers());
     }
 
     public setAttribute(key: string, value: any): void {
@@ -353,7 +337,7 @@ export default class Model<T = Record<string, any>> {
     }
 
     protected proxyHandlers(): ProxyHandler<Model<any>> {
-        return;
+        return Model.MODEL_PROXY_HANDLERS;
     }
 
     protected castIncoming(key: string, value: any): any {
@@ -568,4 +552,24 @@ export default class Model<T = Record<string, any>> {
 
         const id: any = await builder.ins
     }
+
+    private static readonly MODEL_PROXY_HANDLERS: ProxyHandler<Model<any>> = {
+        get: (target: Model<any>, prop: PropertyKey, receiver: any): any => {
+            if (typeof prop === "symbol") return Reflect.get(target, prop, receiver);
+
+            const key: string = prop as string;
+
+            if (key.startsWith("_")) return Reflect.get(target, key, receiver);
+
+            if (Object.prototype.hasOwnProperty.call((target as any)._relations, key)) {
+                const cached: any = (target as any)._relations[key];
+
+                if (Array.isArray(cached)) return (target as any).callableRelation(target, key, cached);
+
+                return cached;
+            }
+
+            if (Model.mo)
+        }
+    };
 }

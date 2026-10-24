@@ -1,5 +1,7 @@
 export * from "@/types/context";
 
+export * from "@/types/db";
+
 export * from "@/types/grammar";
 
 export * from "@/types/model";

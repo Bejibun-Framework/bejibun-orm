@@ -2,10 +2,6 @@ import type {RelationType} from "@/types/relation";
 import Str from "@bejibun/utils/facades/Str";
 import QueryBuilder from "@/builders/QueryBuilder";
 
-const tableOf = (related: any): string => {
-    return related?.tableName || Str.toSnakeCase(related?.name || "model", "_", true).pluralize() as string;
-};
-
 export default class Relation {
     public type: RelationType;
     public parent: any;
@@ -101,7 +97,7 @@ export default class Relation {
         );
 
         relation.through = through;
-        relation.throughTable = tableOf(through);
+        relation.throughTable = Relation.tableOf(through);
         relation.secondKey = secondKey || `${throughSnake}_id`;
         relation.secondLocalKey = secondLocalKey || "id";
 
@@ -178,7 +174,7 @@ export default class Relation {
         return relation;
     }
 
-    protected applyConstraints(builder: any): any {
+    private applyConstraints(builder: any): any {
         if (!this.constraints) return builder;
 
         const result: any = this.constraints(builder);
@@ -186,9 +182,13 @@ export default class Relation {
         return result instanceof QueryBuilder ? result : builder;
     }
 
-    protected one(): Relation {
+    private one(): Relation {
         this.type = "hasOne";
 
         return this;
+    }
+
+    private static tableOf(related: any): string {
+        return related?.tableName || Str.toSnakeCase(related?.name || "model", "_", true).pluralize() as string;
     }
 }

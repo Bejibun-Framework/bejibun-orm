@@ -21,113 +21,6 @@ const statementCache: WeakMap<Database, Map<string, PreparedStatement>> = new We
 >();
 const quoteCache: Map<string, Map<string, string>> = new Map<string, Map<string, string>>();
 
-const detectDriver = (connection: Connection): string => {
-    const cached: string | undefined = driverCache.get(connection);
-
-    if (cached) return cached;
-
-    let driver: string;
-
-    const tagged: string | undefined =
-        readStampedDriver(connection as any) ??
-        (connection as any)?.[DRIVER_TAG] ??
-        (connection as any)?.options?.[DRIVER_TAG];
-
-    if (tagged) {
-        switch (tagged) {
-            case DatabaseDriverEnum.Sqlite:
-            case DatabaseDriverEnum.Sqlite3:
-                driver = DatabaseDriverEnum.Sqlite;
-                break;
-            case DatabaseDriverEnum.Mysql:
-                driver = DatabaseDriverEnum.Mysql;
-                break;
-            case DatabaseDriverEnum.Pg:
-                driver = DatabaseDriverEnum.Pg;
-                break;
-            default:
-                driver = tagged as string;
-                break;
-        }
-    } else if (connection instanceof Database) {
-        driver = DatabaseDriverEnum.Sqlite;
-    } else {
-        const stamped: symbol | undefined = (connection as any)[DRIVER_TAG];
-
-        if (stamped) {
-            switch (stamped) {
-                case DatabaseDriverEnum.Sqlite:
-                case DatabaseDriverEnum.Sqlite3:
-                    driver = DatabaseDriverEnum.Sqlite;
-                    break;
-                case DatabaseDriverEnum.Mysql:
-                    driver = DatabaseDriverEnum.Mysql;
-                    break;
-                case DatabaseDriverEnum.Pg:
-                    driver = DatabaseDriverEnum.Pg;
-                    break;
-                default:
-                    driver = stamped as string;
-                    break;
-            }
-        } else {
-            driver = (connection as any).options?.url?.startsWith(DatabaseDriverEnum.Mysql)
-                ? DatabaseDriverEnum.Mysql
-                : (connection as any).options?.filename
-                  ? DatabaseDriverEnum.Sqlite
-                  : DatabaseDriverEnum.Pg;
-        }
-    }
-
-    driverCache.set(connection, driver);
-
-    return driver;
-};
-
-const containsKeywordOutsideQuotes = (sql: string, keyword: string): boolean => {
-    const target: string = keyword.toLowerCase();
-    const n: number = sql.length;
-    let inString: boolean = false;
-
-    for (let i: number = 0; i < n; i++) {
-        const char: string = sql.charAt(i);
-
-        if (char === "'") {
-            if (sql.charAt(i + 1) === "'") {
-                i++;
-
-                continue;
-            }
-
-            inString = !inString;
-
-            continue;
-        }
-
-        if (inString) continue;
-
-        if (!/[A-Za-z]/.test(char)) continue;
-
-        let end: number = i;
-
-        while (end < n && /[A-Za-z0-9_$]/.test(sql.charAt(end))) end++;
-
-        if (sql.slice(i, end).toLowerCase() === target) return true;
-
-        i = end - 1;
-    }
-
-    return false;
-};
-
-const isReadQuery = (sql: string): boolean => {
-    const trimmed: string = sql.trimStart();
-
-    if (/^(select|pragma|with|explain)\b/i.test(trimmed)) return true;
-
-    return containsKeywordOutsideQuotes(sql, "returning");
-};
-
 export default class Grammar {
     protected driver: string;
     protected connection: Connection;
@@ -135,7 +28,7 @@ export default class Grammar {
     public constructor(connection?: Connection) {
         this.connection =
             connection || currentTransaction() || new ConnectionBuilder().connection();
-        this.driver = detectDriver(this.connection);
+        this.driver = this.detectDriver(this.connection);
     }
 
     public quote(identifier: string): string {
@@ -308,30 +201,6 @@ export default class Grammar {
         return part;
     }
 
-    protected prepare(db: Database, sql: string): PreparedStatement {
-        let map: Map<string, PreparedStatement> | undefined = statementCache.get(db);
-
-        if (!map) {
-            map = new Map<string, PreparedStatement>();
-            statementCache.set(db, map);
-        }
-
-        let prepared: PreparedStatement | undefined = map.get(sql);
-
-        if (!prepared) {
-            prepared = {
-                statement: db.query(sql),
-                read: isReadQuery(sql)
-            };
-
-            if (map.size >= STATEMENT_CACHE_MAX) map.clear();
-
-            map.set(sql, prepared);
-        }
-
-        return prepared;
-    }
-
     protected runSqlite<T = any>(db: Database, sql: string, bindings: Array<any>): Array<T> {
         const prepared: PreparedStatement = this.prepare(db, sql);
 
@@ -353,5 +222,136 @@ export default class Grammar {
         trackPooledStatement(promise);
 
         return (await promise) as Array<T>;
+    }
+
+    private detectDriver(connection: Connection): string {
+        const cached: string | undefined = driverCache.get(connection);
+
+        if (cached) return cached;
+
+        let driver: string;
+
+        const tagged: string | undefined =
+            readStampedDriver(connection as any) ??
+            (connection as any)?.[DRIVER_TAG] ??
+            (connection as any)?.options?.[DRIVER_TAG];
+
+        if (tagged) {
+            switch (tagged) {
+                case DatabaseDriverEnum.Sqlite:
+                case DatabaseDriverEnum.Sqlite3:
+                    driver = DatabaseDriverEnum.Sqlite;
+                    break;
+                case DatabaseDriverEnum.Mysql:
+                    driver = DatabaseDriverEnum.Mysql;
+                    break;
+                case DatabaseDriverEnum.Pg:
+                    driver = DatabaseDriverEnum.Pg;
+                    break;
+                default:
+                    driver = tagged as string;
+                    break;
+            }
+        } else if (connection instanceof Database) {
+            driver = DatabaseDriverEnum.Sqlite;
+        } else {
+            const stamped: symbol | undefined = (connection as any)[DRIVER_TAG];
+
+            if (stamped) {
+                switch (stamped) {
+                    case DatabaseDriverEnum.Sqlite:
+                    case DatabaseDriverEnum.Sqlite3:
+                        driver = DatabaseDriverEnum.Sqlite;
+                        break;
+                    case DatabaseDriverEnum.Mysql:
+                        driver = DatabaseDriverEnum.Mysql;
+                        break;
+                    case DatabaseDriverEnum.Pg:
+                        driver = DatabaseDriverEnum.Pg;
+                        break;
+                    default:
+                        driver = stamped as string;
+                        break;
+                }
+            } else {
+                driver = (connection as any).options?.url?.startsWith(DatabaseDriverEnum.Mysql)
+                    ? DatabaseDriverEnum.Mysql
+                    : (connection as any).options?.filename
+                        ? DatabaseDriverEnum.Sqlite
+                        : DatabaseDriverEnum.Pg;
+            }
+        }
+
+        driverCache.set(connection, driver);
+
+        return driver;
+    }
+
+    private containsKeywordOutsideQuotes(sql: string, keyword: string): boolean {
+        const target: string = keyword.toLowerCase();
+        const n: number = sql.length;
+        let inString: boolean = false;
+
+        for (let i: number = 0; i < n; i++) {
+            const char: string = sql.charAt(i);
+
+            if (char === "'") {
+                if (sql.charAt(i + 1) === "'") {
+                    i++;
+
+                    continue;
+                }
+
+                inString = !inString;
+
+                continue;
+            }
+
+            if (inString) continue;
+
+            if (!/[A-Za-z]/.test(char)) continue;
+
+            let end: number = i;
+
+            while (end < n && /[A-Za-z0-9_$]/.test(sql.charAt(end))) end++;
+
+            if (sql.slice(i, end).toLowerCase() === target) return true;
+
+            i = end - 1;
+        }
+
+        return false;
+    }
+
+    private isReadQuery(sql: string): boolean {
+        const trimmed: string = sql.trimStart();
+
+        if (/^(select|pragma|with|explain)\b/i.test(trimmed)) return true;
+
+        return this.containsKeywordOutsideQuotes(sql, "returning");
+    }
+
+    private prepare(db: Database, sql: string): PreparedStatement {
+        let map: Map<string, PreparedStatement> | undefined = statementCache.get(db);
+
+        if (!map) {
+            map = new Map<string, PreparedStatement>();
+            statementCache.set(db, map);
+        }
+
+        let prepared: PreparedStatement | undefined = map.get(sql);
+
+        if (!prepared) {
+            prepared = {
+                statement: db.query(sql),
+                read: this.isReadQuery(sql)
+            };
+
+            if (map.size >= STATEMENT_CACHE_MAX) map.clear();
+
+            map.set(sql, prepared);
+        }
+
+        return prepared;
     }
 }

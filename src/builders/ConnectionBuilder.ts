@@ -45,34 +45,13 @@ export const trackPooledStatement = (promise: Promise<unknown>): void => {
     void drain.finally(() => inFlightPooled.delete(drain));
 };
 
-const resolveConfig = (): Record<string, any> => {
-    if (cachedConfig) return cachedConfig;
-
-    try {
-        cachedConfig = require(App.Path.configPath("cache.ts")).default;
-    } catch {
-        cachedConfig = require("@/config/cache").default;
-    }
-
-    return cachedConfig;
-};
-
-const isSqliteDriver = (driver: string): boolean => {
-    return (
-        driver === DatabaseDriverEnum.Sqlite ||
-        driver === DatabaseDriverEnum.Sqlite3 ||
-        driver === "bun:sqlite" ||
-        driver === "bun-sqlite"
-    );
-};
-
 export default class ConnectionBuilder {
     public static setScopeConnectionClosedHook(hook: (connection: Connection) => void): void {
         scopeConnectionClosedHook = hook;
     }
 
     public static getTransactionTimeout(): number {
-        const config: Record<string, any> = resolveConfig();
+        const config: Record<string, any> = this.resolveConfig;
 
         return config.transactionTimeout ?? 0;
     }
@@ -167,13 +146,13 @@ export default class ConnectionBuilder {
     }
 
     protected defaultName(): string {
-        const config: Record<string, any> = resolveConfig();
+        const config: Record<string, any> = ConnectionBuilder.resolveConfig;
 
         return config.default || "primary";
     }
 
     protected connectionScoped(name?: string): Connection {
-        const config: Record<string, any> = resolveConfig();
+        const config: Record<string, any> = ConnectionBuilder.resolveConfig;
         const key: string = name || config.default || "primary";
         const driverConfig: Record<string, any> = config.connections[key];
 
@@ -182,7 +161,7 @@ export default class ConnectionBuilder {
         const driver: string = driverConfig.driver || DatabaseDriverEnum.Pg;
 
         if (
-            isSqliteDriver(driver) &&
+            this.isSqliteDriver(driver) &&
             (
                 driverConfig.filename ||
                 driverConfig.database ||
@@ -194,14 +173,14 @@ export default class ConnectionBuilder {
     }
 
     protected buildConnection(key: string): Connection {
-        const config: Record<string, any> = resolveConfig();
+        const config: Record<string, any> = ConnectionBuilder.resolveConfig;
         const driverConfig: Record<string, any> = config.connections[key];
 
         if (!driverConfig) throw new ConnectionException(`Database connection [${key}] not configured.`);
 
         const driver: string = driverConfig.driver || DatabaseDriverEnum.Pg;
 
-        if (isSqliteDriver(driver)) {
+        if (this.isSqliteDriver(driver)) {
             const filename: string = driverConfig.filename || driverConfig.database || driverConfig.name || ":memory:";
 
             const database: Database = new Database(filename);
@@ -227,7 +206,7 @@ export default class ConnectionBuilder {
     protected optionsFor(config: Record<string, any>): Bun.SQL.Options {
         const driver: string = config.driver || DatabaseDriverEnum.Pg;
         const pool: Record<string, any> = config.pool || {};
-        const top: Record<string, any> = resolveConfig();
+        const top: Record<string, any> = ConnectionBuilder.resolveConfig;
 
         const base: Record<string, any> = {
             max: pool.max || config.max || top.max || 10,
@@ -265,5 +244,26 @@ export default class ConnectionBuilder {
         if (host.includes(":")) host = `[${host}]`;
 
         return `${scheme}://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`;
+    }
+
+    private static get resolveConfig(): Record<string, any> {
+        if (cachedConfig) return cachedConfig;
+
+        try {
+            cachedConfig = require(App.Path.configPath("cache.ts")).default;
+        } catch {
+            cachedConfig = require("@/config/cache").default;
+        }
+
+        return cachedConfig;
+    }
+
+    private isSqliteDriver(driver: string): boolean {
+        return (
+            driver === DatabaseDriverEnum.Sqlite ||
+            driver === DatabaseDriverEnum.Sqlite3 ||
+            driver === "bun:sqlite" ||
+            driver === "bun-sqlite"
+        );
     }
 }
