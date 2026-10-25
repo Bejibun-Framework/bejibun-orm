@@ -5,8 +5,10 @@ import type {
     BooleanOperator,
     CompiledQuery,
     HavingClause,
-    JoinClause, JoinType,
-    OrderClause, OrderDirection,
+    JoinClause,
+    JoinType,
+    OrderClause,
+    OrderDirection,
     QueryBuilderCallback,
     UnionClause,
     WhereClause,
@@ -41,13 +43,14 @@ export default class QueryBuilder {
     protected _unions: Array<UnionClause> = [];
     protected _relationResolver?: (name: string) => any;
     protected _eagerLoads: Array<EagerLoadSpec> = [];
-    protected _compileCache?: {
-        signature: string;
-        result: CompiledQuery;
-    };
     protected _fromBindings: Array<any> = [];
     protected _selectBindings: Array<any> = [];
     protected _withAggregateAliases: Array<string> = [];
+
+    private _compileCache?: {
+        signature: string;
+        result: CompiledQuery;
+    };
 
     public constructor(table?: string, connection?: any) {
         this.fromTable = table || null;
@@ -511,13 +514,23 @@ export default class QueryBuilder {
         return this;
     }
 
-    public whereHas(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+    public whereHas(
+        relation: string,
+        callback?: QueryBuilderCallback,
+        operator: string = ">=",
+        count: number = 1
+    ): QueryBuilder {
         this.relationExists(relation, false, "and", callback, operator, count);
 
         return this;
     }
 
-    public orWhereHas(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+    public orWhereHas(
+        relation: string,
+        callback?: QueryBuilderCallback,
+        operator: string = ">=",
+        count: number = 1
+    ): QueryBuilder {
         this.relationExists(relation, false, "or", callback, operator, count);
 
         return this;
@@ -529,27 +542,47 @@ export default class QueryBuilder {
         return this;
     }
 
-    public orDoesntHave(relation: string, operator: string = ">=", count: number = 1): QueryBuilder {
+    public orDoesntHave(
+        relation: string,
+        operator: string = ">=",
+        count: number = 1
+    ): QueryBuilder {
         this.relationExists(relation, true, "or", undefined, operator, count);
 
         return this;
     }
 
-    public whereDoesntHave(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+    public whereDoesntHave(
+        relation: string,
+        callback?: QueryBuilderCallback,
+        operator: string = ">=",
+        count: number = 1
+    ): QueryBuilder {
         this.relationExists(relation, true, "and", callback, operator, count);
 
         return this;
     }
 
-    public orWhereDoesntHave(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+    public orWhereDoesntHave(
+        relation: string,
+        callback?: QueryBuilderCallback,
+        operator: string = ">=",
+        count: number = 1
+    ): QueryBuilder {
         this.relationExists(relation, true, "or", callback, operator, count);
 
         return this;
     }
 
-    public whereRelation(relation: string, column: string, operator?: any, value?: any): QueryBuilder {
+    public whereRelation(
+        relation: string,
+        column: string,
+        operator?: any,
+        value?: any
+    ): QueryBuilder {
         return this.whereHas(relation, (builder: QueryBuilder) => {
-            if (value === undefined && operator !== undefined) return builder.where(column, "=", operator);
+            if (value === undefined && operator !== undefined)
+                return builder.where(column, "=", operator);
 
             if (operator !== undefined) return builder.where(column, operator, value);
 
@@ -557,9 +590,15 @@ export default class QueryBuilder {
         });
     }
 
-    public orWhereRelation(relation: string, column: string, operator?: any, value?: any): QueryBuilder {
+    public orWhereRelation(
+        relation: string,
+        column: string,
+        operator?: any,
+        value?: any
+    ): QueryBuilder {
         return this.orWhereHas(relation, (builder: QueryBuilder) => {
-            if (value === undefined && operator !== undefined) return builder.where(column, "=", operator);
+            if (value === undefined && operator !== undefined)
+                return builder.where(column, "=", operator);
 
             if (operator !== undefined) return builder.where(column, operator, value);
 
@@ -567,7 +606,11 @@ export default class QueryBuilder {
         });
     }
 
-    public whereLike(column: string, value: string, boolean: BooleanOperator = "and"): QueryBuilder {
+    public whereLike(
+        column: string,
+        value: string,
+        boolean: BooleanOperator = "and"
+    ): QueryBuilder {
         this.wheres.push({
             type: "like",
             column,
@@ -579,7 +622,11 @@ export default class QueryBuilder {
         return this;
     }
 
-    public whereILike(column: string, value: string, boolean: BooleanOperator = "and"): QueryBuilder {
+    public whereILike(
+        column: string,
+        value: string,
+        boolean: BooleanOperator = "and"
+    ): QueryBuilder {
         this.wheres.push({
             type: "like",
             column,
@@ -591,7 +638,11 @@ export default class QueryBuilder {
         return this;
     }
 
-    public whereJsonContains(column: string, value: any, boolean: BooleanOperator = "and"): QueryBuilder {
+    public whereJsonContains(
+        column: string,
+        value: any,
+        boolean: BooleanOperator = "and"
+    ): QueryBuilder {
         const compiled: CompiledQuery = this.compileJsonContains(column, value);
 
         this.wheres.push({
@@ -608,10 +659,23 @@ export default class QueryBuilder {
         return this.whereJsonContains(column, value, "or");
     }
 
-    public whereJsonLength(column: string, operator: any, value: any, boolean: BooleanOperator = "and"): QueryBuilder {
+    public whereJsonLength(
+        column: string,
+        operator: any,
+        value: any,
+        boolean: BooleanOperator = "and"
+    ): QueryBuilder {
         const g: Grammar = this.grammar;
-        const columnSql: string = g.driverName() === DatabaseDriverEnum.Pg ? `(${g.quote(column)})::jsonb` : g.quote(column);
-        const fn: string = g.driverName() === DatabaseDriverEnum.Mysql ? "JSON_LENGTH" : g.driverName() === DatabaseDriverEnum.Pg ? "JSONB_ARRAY_LENGTH" : "JSON_ARRAY_LENGTH";
+        const columnSql: string =
+            g.driverName() === DatabaseDriverEnum.Pg
+                ? `(${g.quote(column)})::jsonb`
+                : g.quote(column);
+        const fn: string =
+            g.driverName() === DatabaseDriverEnum.Mysql
+                ? "JSON_LENGTH"
+                : g.driverName() === DatabaseDriverEnum.Pg
+                  ? "JSONB_ARRAY_LENGTH"
+                  : "JSON_ARRAY_LENGTH";
 
         this.wheres.push({
             type: "json",
@@ -627,7 +691,13 @@ export default class QueryBuilder {
         return this.whereJsonLength(column, operator, value, "or");
     }
 
-    public join(table: string, first: string, operator?: string, second?: any, type: JoinType = "inner"): QueryBuilder {
+    public join(
+        table: string,
+        first: string,
+        operator?: string,
+        second?: any,
+        type: JoinType = "inner"
+    ): QueryBuilder {
         if (typeof operator === "undefined") operator = "=";
 
         this.joins.push({
@@ -660,19 +730,29 @@ export default class QueryBuilder {
             second: ""
         });
 
-        return this
+        return this;
     }
 
-    public joinSub(query: QueryBuilder | QueryBuilderCallback, as: string, first: string, operator: string = "=", second?: any, type: JoinType = "inner"): QueryBuilder {
-        const subQuery: QueryBuilder = typeof query === "function" ? (() => {
-            const q: QueryBuilder = new QueryBuilder(undefined, {
-                grammar: this.grammar
-            });
+    public joinSub(
+        query: QueryBuilder | QueryBuilderCallback,
+        as: string,
+        first: string,
+        operator: string = "=",
+        second?: any,
+        type: JoinType = "inner"
+    ): QueryBuilder {
+        const subQuery: QueryBuilder =
+            typeof query === "function"
+                ? (() => {
+                      const q: QueryBuilder = new QueryBuilder(undefined, {
+                          grammar: this.grammar
+                      });
 
-            query(q);
+                      query(q);
 
-            return q;
-        })() : query;
+                      return q;
+                  })()
+                : query;
 
         const compiled: CompiledQuery = subQuery.compileSelect();
 
@@ -682,7 +762,7 @@ export default class QueryBuilder {
             first: this.grammar.quote(first),
             operator,
             second: second ? this.grammar.quote(second) : undefined,
-            bindings: [...compiled.bindings];
+            bindings: [...compiled.bindings]
         });
 
         return this;
@@ -770,7 +850,8 @@ export default class QueryBuilder {
 
     public inRandomOrder(seed?: string): QueryBuilder {
         const driver: string = this.grammar.driverName();
-        const column: string = driver === DatabaseDriverEnum.Pg ? (seed ? `RAND(${seed})` : "RAND()") : "RANDOM()";
+        const column: string =
+            driver === DatabaseDriverEnum.Pg ? (seed ? `RAND(${seed})` : "RAND()") : "RANDOM()";
 
         this.orders.push({
             column,
@@ -814,7 +895,8 @@ export default class QueryBuilder {
         if (this._modelClass) {
             const models: Array<any> = await this._modelClass.hydrate(rows);
 
-            if (this._eagerLoads.length > 0) await this._modelClass.eagerLoad(models, ...this._eagerLoads);
+            if (this._eagerLoads.length > 0)
+                await this._modelClass.eagerLoad(models, ...this._eagerLoads);
 
             return models as Array<T>;
         }
@@ -843,7 +925,10 @@ export default class QueryBuilder {
 
         for (const arg of args) {
             if (typeof arg === "function") {
-                if (!pending) throw new RelationException("with() constraint callback must follow a relation name.");
+                if (!pending)
+                    throw new RelationException(
+                        "with() constraint callback must follow a relation name."
+                    );
 
                 specs.push({
                     relation: pending,
@@ -867,9 +952,10 @@ export default class QueryBuilder {
                 flush();
 
                 for (const item of arg) {
-                    if (typeof item === "string") specs.push({
-                        relation: item
-                    });
+                    if (typeof item === "string")
+                        specs.push({
+                            relation: item
+                        });
                     else specs.push(item);
                 }
 
@@ -882,12 +968,16 @@ export default class QueryBuilder {
                 for (const key of Object.keys(arg)) {
                     const value: any = arg[key];
 
-                    specs.push(typeof value === "function" ? {
-                        relation: key,
-                        constraints: value
-                    } : {
-                        relation: key
-                    });
+                    specs.push(
+                        typeof value === "function"
+                            ? {
+                                  relation: key,
+                                  constraints: value
+                              }
+                            : {
+                                  relation: key
+                              }
+                    );
                 }
             }
         }
@@ -945,14 +1035,21 @@ export default class QueryBuilder {
         return row;
     }
 
-    public async find<T = Record<string, any>>(id: any, columns: Array<string> = ["*"]): Promise<T | undefined> {
+    public async find<T = Record<string, any>>(
+        id: any,
+        columns: Array<string> = ["*"]
+    ): Promise<T | undefined> {
         return this.clone()
             .select(...columns)
             .where(this._modelClass?.idColumn ?? "id", "=", id)
             .first<T>();
     }
 
-    public async findOrFail<T = Record<string, any>>(id: any, columns: Array<string> = ["*"], error?: any): Promise<T> {
+    public async findOrFail<T = Record<string, any>>(
+        id: any,
+        columns: Array<string> = ["*"],
+        error?: any
+    ): Promise<T> {
         const row: T | undefined = await this.find<T>(id, columns);
 
         if (row !== undefined) return row;
@@ -987,7 +1084,9 @@ export default class QueryBuilder {
 
     public async pluck(column: string, key?: string): Promise<Array<any> | Record<string, any>> {
         const cols: Array<string> = key ? [column, key] : [column];
-        const rows: Array<Record<string, any>> = await this.clone().select(...cols).fetch<Record<string, any>>();
+        const rows: Array<Record<string, any>> = await this.clone()
+            .select(...cols)
+            .fetch<Record<string, any>>();
 
         if (!key) return rows.map((row: Record<string, any>) => row[column]);
 
@@ -1009,7 +1108,7 @@ export default class QueryBuilder {
         return rows.map((row: Record<string, any>) => row[column]);
     }
 
-    public async count(column: any = "*"): Promise<number> {
+    public async count(column: string = "*"): Promise<number> {
         const sub: QueryBuilder = this.clone();
 
         sub.limitCount = null;
@@ -1017,8 +1116,18 @@ export default class QueryBuilder {
         sub.orders = [];
         sub.lockMode = null;
 
+        let expression: string = "*";
+
+        if (column !== "*") {
+            expression = this.grammar.quote("bejibun_count_value");
+            sub.select(`${this.grammar.quote(column)} AS ${expression}`);
+        }
+
         const inner: CompiledQuery = sub.compileSelect();
-        const rows: Array<Record<string, any>> = await this.grammar.run(`SELECT COUNT(*) AS aggregate FROM (${inner.sql}) AS ${this.grammar.quote("bejibun_count")}`, inner.bindings);
+        const rows: Array<Record<string, any>> = await this.grammar.run(
+            `SELECT COUNT(${expression}) AS aggregate FROM (${inner.sql}) AS ${this.grammar.quote("bejibun_count")}`,
+            inner.bindings
+        );
 
         return this.normalizeCount(rows[0]?.aggregate);
     }
@@ -1050,14 +1159,41 @@ export default class QueryBuilder {
 
         const columns: Array<string> = Object.keys(rows[0]);
         const sql: Array<string> = rows.map(() => `(${columns.map(() => "?").join(", ")})`);
-        const bindings: Array<any> = rows.flatMap((row: Record<string, any>) => columns.map((column: string) => row[column]));
+        const bindings: Array<any> = rows.flatMap((row: Record<string, any>) =>
+            columns.map((column: string) => row[column])
+        );
         const statement: string = `INSERT INTO ${this.grammar.quote(this.fromTable!)} (${columns.map((column: string) => this.grammar.quote(column)).join(", ")}) VALUES ${sql.join(", ")}`;
 
         return this.grammar.run(statement, bindings);
     }
 
     public async insertGetId(payload: Record<string, any>, key: string = "id"): Promise<any> {
-        if (this.grammar.driverName() === DatabaseDriverEnum.Mysql) return mysq
+        if (this.grammar.driverName() === DatabaseDriverEnum.Mysql)
+            return this.mysqlPinned(async () => {
+                const result: any = await this.insert(payload);
+                const header: any = Array.isArray(result) ? result[0] : result;
+                const direct: any = header?.insertId ?? header?.lastInsertId;
+
+                if (direct !== undefined && direct !== null) return direct;
+
+                const rows: Array<any> = await this.grammar.run("SELECT LAST_INSERT_ID() AS id");
+
+                return Array.isArray(rows) ? rows?.[0]?.id : undefined;
+            });
+
+        const columns: Array<string> = Object.keys(payload);
+        const bindings: Array<any> = columns.map((column: string) => payload[column]);
+        const statement: string = `INSERT INTO ${this.grammar.quote(this.fromTable!)} (${columns.map((column: string) => this.grammar.quote(column)).join(", ")}) VALUES (${columns.map(() => "?").join(", ")}) RETURNING ${this.grammar.quote(key)}`;
+        const rows: Array<Record<string, any>> = await this.grammar.run(statement, bindings);
+        const insertedId: any = rows[0]?.[key] ?? rows[0]?.id;
+
+        if (this.grammar.returnsBigIntAsNumber()) {
+            const numeric: number = Number(insertedId);
+
+            if (typeof insertedId === "string" && Number.isSafeInteger(numeric)) return numeric;
+        }
+
+        return insertedId;
     }
 
     public lock(lock: boolean | string = true): QueryBuilder {
@@ -1075,24 +1211,33 @@ export default class QueryBuilder {
     }
 
     public toSql(): CompiledQuery {
-        const signature: string | null = this.compileSignature();
+        const customCompiler: boolean =
+            this.constructor !== QueryBuilder ||
+            this.compileSelect !== QueryBuilder.prototype.compileSelect;
+        const signature: string | null =
+            customCompiler && this.compileSignature === QueryBuilder.prototype.compileSignature
+                ? null
+                : this.compileSignature();
 
-        if (signature !== null && this._compileCache && this._compileCache.signature === signature) return this._compileCache.result;
+        if (signature !== null && this._compileCache && this._compileCache.signature === signature)
+            return this._compileCache.result;
 
         const result: CompiledQuery = this.compileSelect();
 
-        if (signature !== null) this._compileCache = {
-            signature,
-            result
-        };
+        if (signature !== null)
+            this._compileCache = {
+                signature,
+                result
+            };
 
         return result;
     }
 
     protected clone(): QueryBuilder {
-        const copy: QueryBuilder = new QueryBuilder(this.fromTable ?? undefined, {
-            grammar: this.grammar
-        });
+        const copy: QueryBuilder = Object.create(
+            Object.getPrototypeOf(this),
+            Object.getOwnPropertyDescriptors(this)
+        );
 
         copy._modelClass = this._modelClass;
         copy._relationResolver = this._relationResolver;
@@ -1232,44 +1377,49 @@ export default class QueryBuilder {
             switch (where.type) {
                 case "basic":
                     return `${glue} ${g.quote(where.column!)} ${where.operator} ?`;
-                case "in":
+                case "in": {
                     const placeholders: string = (where.values || []).map(() => "?").join(", ");
 
                     return `${glue} ${g.quote(where.column!)} ${where.not ? "NOT IN" : "IN"} (${placeholders})`;
+                }
                 case "null":
                     return `${glue} ${g.quote(where.column!)} IS NULL`;
                 case "not-null":
                     return `${glue} ${g.quote(where.column!)} IS NOT NULL`;
                 case "between":
                     return `${glue} ${g.quote(where.column!)} ${where.not ? "NOT BETWEEN" : "BETWEEN"} ? AND ?`;
-                case "nested":
+                case "nested": {
                     const nested: CompiledQuery = where.nested!.compileWheres();
                     const inner: string = nested.sql.replace(/^\s*WHERE\s*/i, "");
 
                     if (inner.trim() === "") return "";
 
                     return `${glue} (${inner})`;
+                }
                 case "raw":
                     return `${glue} ${where.sql}`;
                 case "column":
                     return `${glue} ${g.quote(where.column!)} ${where.operator} ${g.quote(where.second!)}`;
-                case "exists":
+                case "exists": {
                     const existsSql: string = where.nested!.compileSelect().sql;
 
                     return `${glue} ${where.not ? "NOT " : ""}EXISTS (${existsSql})`;
-                case "sub":
+                }
+                case "sub": {
                     const subSql: string = where.nested!.compileSelect().sql;
 
                     return `${glue} ${g.quote(where.column!)} ${where.not ? "NOT IN" : "IN"} (${subSql})`;
+                }
                 case "date-part":
                     return `${glue} ${this.dateFunctionSql(where.dateFunction!, where.column!)} ${where.operator} ?`;
-                case "like":
+                case "like": {
                     const operator: string =
                         where.operator === "ILIKE" && g.driverName() !== DatabaseDriverEnum.Pg
                             ? "LIKE"
                             : where.operator!;
 
                     return `${glue} ${g.quote(where.column!)} ${operator} ?`;
+                }
                 case "json":
                     return `${glue} ${where.sql}`;
                 default:
@@ -1439,7 +1589,11 @@ export default class QueryBuilder {
         const g: Grammar = this.grammar;
         const driver: string = g.driverName();
         const columnSql: string = g.quote(column);
-        const singleObject: boolean = value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 1;
+        const singleObject: boolean =
+            value !== null &&
+            typeof value === "object" &&
+            !Array.isArray(value) &&
+            Object.keys(value).length === 1;
 
         if (singleObject) {
             const [key, nestedValue]: [string, any] = Object.entries(value)[0];
@@ -1465,10 +1619,11 @@ export default class QueryBuilder {
 
         switch (driver) {
             case DatabaseDriverEnum.Pg:
-                if (Array.isArray(value) || (value !== null && typeof value === "object")) return {
-                    sql: `(${columnSql}::jsonb @> ?::jsonb)`,
-                    bindings: [JSON.stringify(value)]
-                };
+                if (Array.isArray(value) || (value !== null && typeof value === "object"))
+                    return {
+                        sql: `(${columnSql}::jsonb @> ?::jsonb)`,
+                        bindings: [JSON.stringify(value)]
+                    };
 
                 return {
                     sql: `EXISTS (SELECT 1 FROM JSONB_ARRAY_ELEMENTS(${columnSql}::jsonb) e WHERE e.value::text = ?::text)`,
@@ -1485,8 +1640,12 @@ export default class QueryBuilder {
                     const bindings: Array<any> = [];
 
                     for (const item of value) {
-                        checks.push(`EXISTS (SELECT 1 FROM JSON_EACH(${columnSql}) WHERE json_each.value = ?)`);
-                        bindings.push(item !== null && typeof item === "object" ? JSON.stringify(item) : item);
+                        checks.push(
+                            `EXISTS (SELECT 1 FROM JSON_EACH(${columnSql}) WHERE json_each.value = ?)`
+                        );
+                        bindings.push(
+                            item !== null && typeof item === "object" ? JSON.stringify(item) : item
+                        );
                     }
 
                     return {
@@ -1506,7 +1665,8 @@ export default class QueryBuilder {
         if (this._unions.length > 0) return null;
 
         for (const where of this.wheres) {
-            if (where.type === "nested" || where.type === "exists" || where.type === "sub") return null;
+            if (where.type === "nested" || where.type === "exists" || where.type === "sub")
+                return null;
 
             if (where.value instanceof Raw) return null;
         }
@@ -1523,10 +1683,27 @@ export default class QueryBuilder {
             }
         };
 
-        const whereText: string = this.wheres.map((where: WhereClause) => `${where.type}:${where.column ?? ""}:${where.operator ?? ""}:${valueText(where.value ?? where.sql ?? where.values ?? null)}`).join("|");
-        const joinText: string = this.joins.map((join: JoinClause) => `${join.type}:${join.table}:${join.first ?? ""}:${join.operator ?? ""}:${join.second ?? ""}:${Array.isArray(join.bindings) ? valueText(join.bindings) : ""}`).join("|");
-        const orderText: string = this.orders.map((order: OrderClause) => `${order.column ?? ""}:${order.direction ?? ""}`).join("|");
-        const havingText: string = this.havings.map((having: HavingClause | any) => `${having.type ?? ""}:${having.column ?? ""}:${having.operator ?? ""}:${valueText(having.value ?? having.sql ?? null)}`).join("|");
+        const whereText: string = this.wheres
+            .map(
+                (where: WhereClause) =>
+                    `${where.type}:${where.column ?? ""}:${where.operator ?? ""}:${valueText(where.value ?? where.sql ?? where.values ?? null)}`
+            )
+            .join("|");
+        const joinText: string = this.joins
+            .map(
+                (join: JoinClause) =>
+                    `${join.type}:${join.table}:${join.first ?? ""}:${join.operator ?? ""}:${join.second ?? ""}:${Array.isArray(join.bindings) ? valueText(join.bindings) : ""}`
+            )
+            .join("|");
+        const orderText: string = this.orders
+            .map((order: OrderClause) => `${order.column ?? ""}:${order.direction ?? ""}`)
+            .join("|");
+        const havingText: string = this.havings
+            .map(
+                (having: HavingClause | any) =>
+                    `${having.type ?? ""}:${having.column ?? ""}:${having.operator ?? ""}:${valueText(having.value ?? having.sql ?? null)}`
+            )
+            .join("|");
 
         return [
             this.fromTable,
@@ -1549,71 +1726,20 @@ export default class QueryBuilder {
         ].join("\u0000");
     }
 
-    protected whereNested(callback: any, boolean: BooleanOperator = "and"): QueryBuilder {
-        const child: QueryBuilder = new QueryBuilder(undefined, {
-            grammar: this.grammar
-        });
-
-        callback(child);
-
-        this.wheres.push({
-            type: "nested",
-            nested: child,
-            boolean
-        });
-
-        return this;
-    }
-
-    protected whereDatePart(
-        column: string,
-        fn: string,
-        operator: any,
-        value?: any,
-        boolean: BooleanOperator = "and"
-    ): QueryBuilder {
-        if (value === undefined && operator !== undefined) {
-            value = operator;
-            operator = "=";
-        }
-
-        this.wheres.push({
-            type: "date-part",
-            column,
-            operator,
-            value,
-            boolean,
-            dateFunction: fn
-        });
-
-        return this;
-    }
-
-    protected relationExists(relation: string, not: boolean, boolean: BooleanOperator, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): void {
-        if (!this._relationResolver) throw new RelationException(`Relation queries require a relation resolver -- use Model.query() / Model.${relation}().`);
-
-        const rel: any = this._relationResolver(relation);
-        const parentTable: string = this.fromTable!;
-
-        this.whereExists((sub: QueryBuilder) => {
-            rel.applyExistenceQuery(sub, parentTable, operator, count);
-
-            if (callback) callback(sub);
-
-            return sub;
-        }, not, boolean);
-    }
-
     protected async fetch<T = Record<string, any>>(): Promise<Array<T>> {
         const compiled: CompiledQuery = this.toSql();
-        const rows: Array<Record<string, any>> = await this.grammar.run<Array<Record<string, any>>>(compiled.sql, compiled.bindings);
+        const rows: Array<Record<string, any>> = await this.grammar.run<Array<Record<string, any>>>(
+            compiled.sql,
+            compiled.bindings
+        );
 
         if (this._withAggregateAliases.length > 0) {
             for (const row of rows) {
                 for (const alias of this._withAggregateAliases) {
                     const raw: any = row[alias];
 
-                    if (typeof raw === "string" && /^-?\d+(\.\d+)?$/.test(raw)) row[alias] = Number(raw);
+                    if (typeof raw === "string" && /^-?\d+(\.\d+)?$/.test(raw))
+                        row[alias] = Number(raw);
                     else if (typeof raw === "boolean") row[alias] = raw ? 1 : 0;
                 }
             }
@@ -1641,12 +1767,113 @@ export default class QueryBuilder {
         return rows as Array<T>;
     }
 
-    protected addAggregate(aggregate: AggregateType, relations: Array<string> | Record<string, any>, column?: string): QueryBuilder {
-        const entries: Array<[string, any]> = Array.isArray(relations) ? relations.map((name: string) => [name, {}]) : Object.entries(relations);
+    protected async aggregate(
+        fn: Uppercase<Exclude<AggregateType, "exists">>,
+        column: string
+    ): Promise<any> {
+        const rows: Array<Record<string, any>> = await this.clone()
+            .select(`${fn}(${this.grammar.quote(column)}) AS aggregate`)
+            .fetch<Record<string, any>>();
+        const value: any = rows[0]?.aggregate;
+
+        if (typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value)) return Number(value);
+
+        return value;
+    }
+
+    protected async mysqlPinned<T>(task: () => Promise<T>): Promise<T> {
+        if (this.grammar.driverName() !== DatabaseDriverEnum.Mysql || currentTransaction())
+            return task();
+
+        return DB.transaction<T>(task);
+    }
+
+    private whereNested(callback: any, boolean: BooleanOperator = "and"): QueryBuilder {
+        const child: QueryBuilder = new QueryBuilder(undefined, {
+            grammar: this.grammar
+        });
+
+        callback(child);
+
+        this.wheres.push({
+            type: "nested",
+            nested: child,
+            boolean
+        });
+
+        return this;
+    }
+
+    private whereDatePart(
+        column: string,
+        fn: string,
+        operator: any,
+        value?: any,
+        boolean: BooleanOperator = "and"
+    ): QueryBuilder {
+        if (value === undefined && operator !== undefined) {
+            value = operator;
+            operator = "=";
+        }
+
+        this.wheres.push({
+            type: "date-part",
+            column,
+            operator,
+            value,
+            boolean,
+            dateFunction: fn
+        });
+
+        return this;
+    }
+
+    private relationExists(
+        relation: string,
+        not: boolean,
+        boolean: BooleanOperator,
+        callback?: QueryBuilderCallback,
+        operator: string = ">=",
+        count: number = 1
+    ): void {
+        if (!this._relationResolver)
+            throw new RelationException(
+                `Relation queries require a relation resolver -- use Model.query() / Model.${relation}().`
+            );
+
+        const rel: any = this._relationResolver(relation);
+        const parentTable: string = this.fromTable!;
+
+        this.whereExists(
+            (sub: QueryBuilder) => {
+                rel.applyExistenceQuery(sub, parentTable, operator, count);
+
+                if (callback) callback(sub);
+
+                return sub;
+            },
+            not,
+            boolean
+        );
+    }
+
+    private addAggregate(
+        aggregate: AggregateType,
+        relations: Array<string> | Record<string, any>,
+        column?: string
+    ): QueryBuilder {
+        const entries: Array<[string, any]> = Array.isArray(relations)
+            ? relations.map((name: string) => [name, {}])
+            : Object.entries(relations);
 
         for (const [name, opts] of entries) {
             const g: Grammar = this.grammar;
-            const alias: string = aggregate === "exists" ? `${name}_exists` : aggregate === "count" ? `${name}_count` : `${name}_${aggregate}_${opts.column || column || "id"}`;
+            const alias: string =
+                aggregate === "exists"
+                    ? `${name}_exists`
+                    : aggregate === "count"
+                      ? `${name}_count`
+                      : `${name}_${aggregate}_${opts.column || column || "id"}`;
 
             this._withAggregateAliases.push(alias);
 
@@ -1684,18 +1911,7 @@ export default class QueryBuilder {
         return this;
     }
 
-    protected async aggregate(fn: Uppercase<Exclude<AggregateType, "exists">>, column: string): Promise<any> {
-        const rows: Array<Record<string, any>> = await this.clone()
-            .select(`${fn}(${this.grammar.quote(column)}) AS aggregate`)
-            .fetch<Record<string, any>>();
-        const value: any = rows[0]?.aggregate;
-
-        if (typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value)) return Number(value);
-
-        return value;
-    }
-
-    protected normalizeCount(value: any): number {
+    private normalizeCount(value: any): number {
         if (typeof value === "number") return value;
 
         if (typeof value === "string") {
@@ -1705,11 +1921,5 @@ export default class QueryBuilder {
         }
 
         return Number(value) || 0;
-    }
-
-    protected async mysqlPinned<T>(task: () => Promise<T>): Promise<T> {
-        if (this.grammar.driverName() !== DatabaseDriverEnum.Mysql || currentTransaction()) return task();
-
-        return DB.tra
     }
 }

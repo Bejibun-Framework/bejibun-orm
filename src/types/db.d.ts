@@ -1,3 +1,5 @@
+import type {ConnectionMetrics} from "@/types/connection";
+
 export interface TransactionOptions {
     signal?: AbortSignal;
     timeout?: number;
@@ -21,4 +23,16 @@ export interface ManualHold {
     ownerId?: symbol;
     manual?: boolean;
     waiters: Array<ManualWaiter>;
+}
+
+export interface DBMetrics extends ConnectionMetrics {
+    transactionTasks: number;
+    heldSlots: number;
+    pendingWaiters: number;
+}
+
+export interface AbortTrack {
+    readonly aborted: boolean;
+    readonly reason: Error;
+    detach: () => void;
 }

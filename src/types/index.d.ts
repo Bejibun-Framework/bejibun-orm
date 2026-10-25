@@ -1,3 +1,5 @@
+export * from "@/types/connection";
+
 export * from "@/types/context";
 
 export * from "@/types/db";

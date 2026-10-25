@@ -1,7 +1,18 @@
 import Model from "@/bases/Model";
 import QueryBuilder from "@/builders/QueryBuilder";
 
-export type ModelEvent = "creating" | "created" | "retrieved" | "updating" | "updated" | "deleting" | "deleted" | "saving" | "saved" | "restoring" | "restored";
+export type ModelEvent =
+    | "creating"
+    | "created"
+    | "retrieved"
+    | "updating"
+    | "updated"
+    | "deleting"
+    | "deleted"
+    | "saving"
+    | "saved"
+    | "restoring"
+    | "restored";
 
 export type ModelEventCallback = (
     model: Model<any>

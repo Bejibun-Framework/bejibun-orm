@@ -10,23 +10,29 @@ export default class Relation {
     public ownerKey: string;
     public name?: string;
 
-    protected declare pivotTable?: string;
-    protected declare relatedKey?: string;
-    protected declare relatedOwnerKey?: string;
-    protected declare through?: any;
-    protected declare throughTable?: string;
-    protected declare secondKey?: string;
-    protected declare secondLocalKey?: string;
-    protected declare morphName?: string;
-    protected declare morphType?: string;
-    protected declare typeColumn?: string;
-    protected declare pivotAlias?: string;
-    protected declare pivotModel?: string;
+    declare private pivotTable?: string;
+    declare private relatedKey?: string;
+    declare private relatedOwnerKey?: string;
+    declare private through?: any;
+    declare private throughTable?: string;
+    declare private secondKey?: string;
+    declare private secondLocalKey?: string;
+    declare private morphName?: string;
+    declare private morphType?: string;
+    declare private typeColumn?: string;
+    declare private pivotAlias?: string;
+    declare private pivotModel?: string;
 
-    protected pivotColumns?: Array<string> = [];
-    protected constraints?: (builder: any) => any;
+    private pivotColumns?: Array<string> = [];
+    private constraints?: (builder: any) => any;
 
-    private constructor(type: RelationType, parent: any, related: any, foreignKey: string, ownerKey: string) {
+    private constructor(
+        type: RelationType,
+        parent: any,
+        related: any,
+        foreignKey: string,
+        ownerKey: string
+    ) {
         this.type = type;
         this.parent = parent;
         this.related = related;
@@ -34,22 +40,39 @@ export default class Relation {
         this.ownerKey = ownerKey;
     }
 
-    public static hasOne(parent: any, related: any, foreignKey?: string, ownerKey?: string): Relation {
+    public static hasOne(
+        parent: any,
+        related: any,
+        foreignKey?: string,
+        ownerKey?: string
+    ): Relation {
         return Relation.hasMany(parent, related, foreignKey, ownerKey).one();
     }
 
-    public static hasMany(parent: any, related: any, foreignKey?: string, ownerKey?: string): Relation {
+    public static hasMany(
+        parent: any,
+        related: any,
+        foreignKey?: string,
+        ownerKey?: string
+    ): Relation {
         return new Relation(
             "hasMany",
             parent,
             related,
             foreignKey || `${Str.toSnakeCase(parent?.constructor?.name || parent)}_id`,
             ownerKey || parent?.constructor?.idColumn || "id"
-        )
+        );
     }
 
-    public static belongsTo(parent: any, related: any, foreignKey?: string, ownerKey?: string, name?: string): Relation {
-        const resolvedName: string = name || (Str.toSnakeCase(related?.name || "related") as string);
+    public static belongsTo(
+        parent: any,
+        related: any,
+        foreignKey?: string,
+        ownerKey?: string,
+        name?: string
+    ): Relation {
+        const resolvedName: string =
+            name || (Str.toSnakeCase(related?.name || "related") as string);
 
         return new Relation(
             "belongsTo",
@@ -60,7 +83,15 @@ export default class Relation {
         );
     }
 
-    public static belongsToMany(parent: any, related: any, pivotTable?: string, foreignKey?: string, relatedKey?: string, ownerKey?: string, relatedOwnerKey?: string): Relation {
+    public static belongsToMany(
+        parent: any,
+        related: any,
+        pivotTable?: string,
+        foreignKey?: string,
+        relatedKey?: string,
+        ownerKey?: string,
+        relatedOwnerKey?: string
+    ): Relation {
         const parentSnake: string = Str.toSnakeCase(parent?.constructor?.name || "model") as string;
         const relatedSnake: string = Str.toSnakeCase(related?.name || "related") as string;
         const sorted: Array<string> = [parentSnake, relatedSnake].sort();
@@ -80,11 +111,35 @@ export default class Relation {
         return relation;
     }
 
-    public static hasOneThrough(parent: any, related: any, through: any, firstKey?: string, secondKey?: string, localKey?: string, secondLocalKey?: string): Relation {
-        return Relation.hasManyThrough(parent, related, through, firstKey, secondKey, localKey, secondLocalKey).one();
+    public static hasOneThrough(
+        parent: any,
+        related: any,
+        through: any,
+        firstKey?: string,
+        secondKey?: string,
+        localKey?: string,
+        secondLocalKey?: string
+    ): Relation {
+        return Relation.hasManyThrough(
+            parent,
+            related,
+            through,
+            firstKey,
+            secondKey,
+            localKey,
+            secondLocalKey
+        ).one();
     }
 
-    public static hasManyThrough(parent: any, related: any, through: any, firstKey?: string, secondKey?: string, localKey?: string, secondLocalKey?: string): Relation {
+    public static hasManyThrough(
+        parent: any,
+        related: any,
+        through: any,
+        firstKey?: string,
+        secondKey?: string,
+        localKey?: string,
+        secondLocalKey?: string
+    ): Relation {
         const parentSnake: string = Str.toSnakeCase(parent?.constructor?.name || parent) as string;
         const throughSnake: string = Str.toSnakeCase(through?.name || "through") as string;
 
@@ -92,7 +147,7 @@ export default class Relation {
             "hasManyThrough",
             parent,
             related,
-            firstKey || `${parentSnake}_id`
+            firstKey || `${parentSnake}_id`,
             localKey || parent?.constructor?.idColumn || "id"
         );
 
@@ -104,8 +159,15 @@ export default class Relation {
         return relation;
     }
 
-    public static morphTo(parent: any, related: any, name?: string, typeColumn?: string, idColumn?: string): Relation {
-        const morphName: string = name || Str.toSnakeCase(related?.name || "commentable") as string;
+    public static morphTo(
+        parent: any,
+        related: any,
+        name?: string,
+        typeColumn?: string,
+        idColumn?: string
+    ): Relation {
+        const morphName: string =
+            name || (Str.toSnakeCase(related?.name || "commentable") as string);
 
         const relation: Relation = new Relation(
             "morphTo",
@@ -121,7 +183,14 @@ export default class Relation {
         return relation;
     }
 
-    public static morphMany(parent: any, related: any, name: string, typeColumn?: string, idColumn?: string, ownerKey?: string): Relation {
+    public static morphMany(
+        parent: any,
+        related: any,
+        name: string,
+        typeColumn?: string,
+        idColumn?: string,
+        ownerKey?: string
+    ): Relation {
         const relation: Relation = new Relation(
             "morphMany",
             parent,
@@ -136,7 +205,16 @@ export default class Relation {
         return relation;
     }
 
-    public static morphToMany(parent: any, related: any, name: string, table?: string, pivotForeignKey?: string, relatedKey?: string, parentKey?: string, relatedOwnerKey?: string): Relation {
+    public static morphToMany(
+        parent: any,
+        related: any,
+        name: string,
+        table?: string,
+        pivotForeignKey?: string,
+        relatedKey?: string,
+        parentKey?: string,
+        relatedOwnerKey?: string
+    ): Relation {
         const relation: Relation = new Relation(
             "morphToMany",
             parent,
@@ -146,7 +224,8 @@ export default class Relation {
         );
 
         relation.morphName = name;
-        relation.pivotTable = table || `${Str.toSnakeCase(related?.name)}able_${Str.toSnakeCase(related?.name)}`;
+        relation.pivotTable =
+            table || `${Str.toSnakeCase(related?.name)}able_${Str.toSnakeCase(related?.name)}`;
         relation.relatedKey = relatedKey || `${Str.toSnakeCase(related?.name)}_id`;
         relation.relatedOwnerKey = relatedOwnerKey || "id";
         relation.morphType = `${name}_type`;
@@ -154,7 +233,16 @@ export default class Relation {
         return relation;
     }
 
-    public static morphedByMany(parent: any, related: any, name: string, table?: string, pivotForeignKey?: string, relatedKey?: string, parentKey?: string, relatedOwnerKey?: string): Relation {
+    public static morphedByMany(
+        parent: any,
+        related: any,
+        name: string,
+        table?: string,
+        pivotForeignKey?: string,
+        relatedKey?: string,
+        parentKey?: string,
+        relatedOwnerKey?: string
+    ): Relation {
         const relatedSnake: string = Str.toSnakeCase(related?.name || "related") as string;
 
         const relation: Relation = new Relation(
@@ -166,7 +254,9 @@ export default class Relation {
         );
 
         relation.morphName = name;
-        relation.pivotTable = table || `${Str.toSnakeCase(parent?.constructor?.name)}able_${Str.toSnakeCase(parent?.constructor?.name)}`;
+        relation.pivotTable =
+            table ||
+            `${Str.toSnakeCase(parent?.constructor?.name)}able_${Str.toSnakeCase(parent?.constructor?.name)}`;
         relation.relatedKey = relatedKey || `${name}_id`;
         relation.relatedOwnerKey = relatedOwnerKey || "id";
         relation.morphType = `${name}_type`;
@@ -189,6 +279,9 @@ export default class Relation {
     }
 
     private static tableOf(related: any): string {
-        return related?.tableName || Str.toSnakeCase(related?.name || "model", "_", true).pluralize() as string;
+        return (
+            related?.tableName ||
+            (Str.toSnakeCase(related?.name || "model", "_", true).pluralize() as string)
+        );
     }
 }

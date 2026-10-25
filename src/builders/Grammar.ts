@@ -2,7 +2,8 @@ import type {Database} from "bun:sqlite";
 import type {Connection} from "@/types/context";
 import type {PreparedStatement} from "@/types/grammar";
 import ConnectionBuilder, {
-    DRIVER_TAG, readBigIntAsNumber,
+    DRIVER_TAG,
+    readBigIntAsNumber,
     readStampedDriver,
     trackPooledStatement
 } from "@/builders/ConnectionBuilder";
@@ -277,8 +278,8 @@ export default class Grammar {
                 driver = (connection as any).options?.url?.startsWith(DatabaseDriverEnum.Mysql)
                     ? DatabaseDriverEnum.Mysql
                     : (connection as any).options?.filename
-                        ? DatabaseDriverEnum.Sqlite
-                        : DatabaseDriverEnum.Pg;
+                      ? DatabaseDriverEnum.Sqlite
+                      : DatabaseDriverEnum.Pg;
             }
         }
 

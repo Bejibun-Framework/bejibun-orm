@@ -1,4 +1,5 @@
 import type {Database} from "bun:sqlite";
+import type {ConnectionMetrics} from "@/types/connection";
 import type {Connection} from "@/types/context";
 import App from "@bejibun/app";
 import {defineValue} from "@bejibun/utils";
@@ -9,10 +10,11 @@ import DatabaseDriverEnum from "@/enums/DatabaseDriverEnum";
 let cachedConfig: Record<string, any> | null = null;
 let scopeConnectionClosedHook: ((connection: Connection) => void) | undefined;
 let openScopedConnections: number = 0;
-let activeIsolationScope: number = 0;
+let activeIsolationScopes: number = 0;
 
 const connections: Map<string, Connection> = new Map<string, Connection>();
-const connectionScopes: AsyncLocalStorage<Map<string, Connection> | undefined> = new AsyncLocalStorage<Map<string, Connection> | undefined>();
+const connectionScopes: AsyncLocalStorage<Map<string, Connection> | undefined> =
+    new AsyncLocalStorage<Map<string, Connection> | undefined>();
 const driverStamps: WeakMap<object, string> = new WeakMap<object, string>();
 const bigIntAsNumberStamps: WeakMap<object, boolean> = new WeakMap<object, boolean>();
 const inFlightPooled: Set<Promise<void>> = new Set<Promise<void>>();
@@ -37,7 +39,10 @@ export const readBigIntAsNumber = (connection: object): boolean => {
 
 export const trackPooledStatement = (promise: Promise<unknown>): void => {
     const drain: Promise<void> = new Promise<void>((resolve: any) => {
-        void Promise.resolve(promise).then(() => resolve(), () => resolve());
+        void Promise.resolve(promise).then(
+            () => resolve(),
+            () => resolve()
+        );
     });
 
     inFlightPooled.add(drain);
@@ -73,7 +78,7 @@ export default class ConnectionBuilder {
     public isolated<T>(callback: () => T): T {
         const scope: Map<string, Connection> = new Map<string, Connection>();
 
-        const closeScope = (): void {
+        const closeScope = (): void => {
             for (const connection of scope.values()) {
                 scopeConnectionClosedHook?.(connection);
 
@@ -86,10 +91,10 @@ export default class ConnectionBuilder {
 
             openScopedConnections -= scope.size;
             scope.clear();
-            activeIsolationScope--;
+            activeIsolationScopes--;
         };
 
-        activeIsolationScope++;
+        activeIsolationScopes++;
 
         try {
             const result: T = connectionScopes.run(scope, callback);
@@ -97,15 +102,18 @@ export default class ConnectionBuilder {
             if (result instanceof Promise) {
                 const promise: Promise<unknown> = result as unknown as Promise<unknown>;
 
-                return promise.then((value): T => {
-                    closeScope();
+                return promise.then(
+                    (value): T => {
+                        closeScope();
 
-                    return value as T;
-                }, (error): never => {
-                    closeScope();
+                        return value as T;
+                    },
+                    (error): never => {
+                        closeScope();
 
-                    throw error;
-                }) as unknown as T;
+                        throw error;
+                    }
+                ) as unknown as T;
             }
 
             closeScope();
@@ -145,43 +153,26 @@ export default class ConnectionBuilder {
         return connection;
     }
 
-    protected defaultName(): string {
-        const config: Record<string, any> = ConnectionBuilder.resolveConfig;
-
-        return config.default || "primary";
-    }
-
-    protected connectionScoped(name?: string): Connection {
-        const config: Record<string, any> = ConnectionBuilder.resolveConfig;
-        const key: string = name || config.default || "primary";
-        const driverConfig: Record<string, any> = config.connections[key];
-
-        if (!driverConfig) throw new ConnectionException(`Database connection [${key}] not configured.`);
-
-        const driver: string = driverConfig.driver || DatabaseDriverEnum.Pg;
-
-        if (
-            this.isSqliteDriver(driver) &&
-            (
-                driverConfig.filename ||
-                driverConfig.database ||
-                driverConfig.name
-            ) === ":memory"
-        ) throw new ConnectionException(`Database connection [${key}] uses SQLite in-memory (:memory); per-context connections require a file-backed database.`);
-
-        return this.buildConnection(key);
+    public metrics(): ConnectionMetrics {
+        return {
+            scopes: activeIsolationScopes,
+            scopedConnections: openScopedConnections,
+            sharedConnections: connections.size
+        };
     }
 
     protected buildConnection(key: string): Connection {
         const config: Record<string, any> = ConnectionBuilder.resolveConfig;
         const driverConfig: Record<string, any> = config.connections[key];
 
-        if (!driverConfig) throw new ConnectionException(`Database connection [${key}] not configured.`);
+        if (!driverConfig)
+            throw new ConnectionException(`Database connection [${key}] not configured.`);
 
         const driver: string = driverConfig.driver || DatabaseDriverEnum.Pg;
 
         if (this.isSqliteDriver(driver)) {
-            const filename: string = driverConfig.filename || driverConfig.database || driverConfig.name || ":memory:";
+            const filename: string =
+                driverConfig.filename || driverConfig.database || driverConfig.name || ":memory:";
 
             const database: Database = new Database(filename);
 
@@ -198,12 +189,21 @@ export default class ConnectionBuilder {
 
         stampDriver(sql, driver);
 
-        stampBigIntAsNumber(sql, driver === DatabaseDriverEnum.Pg && driverConfig.options?.bigIntAsNumber === true);
+        stampBigIntAsNumber(
+            sql,
+            driver === DatabaseDriverEnum.Pg && driverConfig.options?.bigIntAsNumber === true
+        );
 
         return sql;
     }
 
-    protected optionsFor(config: Record<string, any>): Bun.SQL.Options {
+    private defaultName(): string {
+        const config: Record<string, any> = ConnectionBuilder.resolveConfig;
+
+        return config.default || "primary";
+    }
+
+    private optionsFor(config: Record<string, any>): Bun.SQL.Options {
         const driver: string = config.driver || DatabaseDriverEnum.Pg;
         const pool: Record<string, any> = config.pool || {};
         const top: Record<string, any> = ConnectionBuilder.resolveConfig;
@@ -212,19 +212,16 @@ export default class ConnectionBuilder {
             max: pool.max || config.max || top.max || 10,
             idleTimeout: defineValue(
                 pool.idleTimeout,
-                defineValue(
-                    config.idleTimeout,
-                    defineValue(
-                        top.idleTimeout,
-                        30
-                    )
-                )
+                defineValue(config.idleTimeout, defineValue(top.idleTimeout, 30))
             )
         };
 
         const url: string = defineValue(config.url, this.buildUrl(driver, config));
 
-        const driverOptions: Record<string, any> = (config.options || config.mysql || {}) as Record<string, any>;
+        const driverOptions: Record<string, any> = (config.options || config.mysql || {}) as Record<
+            string,
+            any
+        >;
 
         return {
             ...base,
@@ -233,10 +230,12 @@ export default class ConnectionBuilder {
         } as Bun.SQL.Options;
     }
 
-    protected buildUrl(driver: string, config: Record<string, any>): string {
-        const scheme: string = driver === DatabaseDriverEnum.Mysql ? DatabaseDriverEnum.Mysql : "postgres";
+    private buildUrl(driver: string, config: Record<string, any>): string {
+        const scheme: string =
+            driver === DatabaseDriverEnum.Mysql ? DatabaseDriverEnum.Mysql : "postgres";
         let host: string = config.host || "127.0.0.1";
-        const port: string | number = config.port || (driver === DatabaseDriverEnum.Mysql ? 3306 : 5432);
+        const port: string | number =
+            config.port || (driver === DatabaseDriverEnum.Mysql ? 3306 : 5432);
         const user: string = config.user || config.username || "postgres";
         const password: string = config.password || "";
         const database: string = config.database || config.name || "bejibun";
@@ -244,6 +243,27 @@ export default class ConnectionBuilder {
         if (host.includes(":")) host = `[${host}]`;
 
         return `${scheme}://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`;
+    }
+
+    private connectionScoped(name?: string): Connection {
+        const config: Record<string, any> = ConnectionBuilder.resolveConfig;
+        const key: string = name || config.default || "primary";
+        const driverConfig: Record<string, any> = config.connections[key];
+
+        if (!driverConfig)
+            throw new ConnectionException(`Database connection [${key}] not configured.`);
+
+        const driver: string = driverConfig.driver || DatabaseDriverEnum.Pg;
+
+        if (
+            this.isSqliteDriver(driver) &&
+            (driverConfig.filename || driverConfig.database || driverConfig.name) === ":memory"
+        )
+            throw new ConnectionException(
+                `Database connection [${key}] uses SQLite in-memory (:memory); per-context connections require a file-backed database.`
+            );
+
+        return this.buildConnection(key);
     }
 
     private static get resolveConfig(): Record<string, any> {

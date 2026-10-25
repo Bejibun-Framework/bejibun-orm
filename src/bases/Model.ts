@@ -4,8 +4,11 @@ import Logger from "@bejibun/logger";
 import Luxon from "@bejibun/utils/facades/Luxon";
 import Relation from "@/bases/Relation";
 import QueryBuilder from "@/builders/QueryBuilder";
+import DatabaseDriverEnum from "@/enums/DatabaseDriverEnum";
 import RelationException from "@/exceptions/RelationException";
-import {DatabaseDriverEnum} from "@/enums";
+
+let MODEL_METHOD_KEYS: Set<string> | null = null;
+const RELATION_METHOD_KEYS: WeakMap<object, Set<string>> = new WeakMap<object, Set<string>>();
 
 export default class Model<T = Record<string, any>> {
     public static tableName: string;
@@ -34,9 +37,10 @@ export default class Model<T = Record<string, any>> {
     protected _attributes: Record<string, any> = {};
     protected _original: Record<string, any> = {};
     protected _exists: boolean = false;
-    protected _saveChain?: Promise<void>;
     protected _relations?: Record<string, any> = {};
     protected _changes?: Record<string, any> = {};
+
+    private _saveChain?: Promise<void>;
 
     declare protected _privateHidden?: Array<string>;
     declare protected _privateAppends?: Array<string>;
@@ -60,7 +64,7 @@ export default class Model<T = Record<string, any>> {
     }
 
     public attribute<K extends keyof T & string>(key: K): T[K] {
-        return this._attributes[key] as T[K];
+        return this.getAttribute(key) as T[K];
     }
 
     public attributes(): Partial<T> {
@@ -80,7 +84,7 @@ export default class Model<T = Record<string, any>> {
     public async save(): Promise<Model> {
         const tail: Promise<void> = this._saveChain ?? Promise.resolve();
         let done!: () => void;
-        const slot: Promise<void> = new Promise<void>(resolve => (done = resolve));
+        const slot: Promise<void> = new Promise<void>((resolve) => (done = resolve));
         const link: Promise<void> = tail.then(() => slot);
 
         this._saveChain = link;
@@ -90,7 +94,12 @@ export default class Model<T = Record<string, any>> {
         try {
             let persisted: boolean;
 
-            if (!this._exists) persisted = await ins
+            if (!this._exists) persisted = await this.insert();
+            else persisted = await perf;
+        } finally {
+            done();
+
+            if (this._saveChain === link) this._saveChain = undefined;
         }
     }
 
@@ -240,7 +249,11 @@ export default class Model<T = Record<string, any>> {
         const kept: Array<{
             name?: string;
             scope: QueryBuilderCallback;
-        }> = ((this as any).__globalScopes || []).filter((entry: any) => typeof nameOrFunc === "function" ? entry.scope !== nameOrFunc : entry.name !== nameOrFunc);
+        }> = ((this as any).__globalScopes || []).filter((entry: any) =>
+            typeof nameOrFunc === "function"
+                ? entry.scope !== nameOrFunc
+                : entry.name !== nameOrFunc
+        );
 
         this.applyScopes(builder, kept);
 
@@ -307,13 +320,15 @@ export default class Model<T = Record<string, any>> {
 
     public static async withAll(): Promise<Array<any>> {
         const model: any = new (this as any)();
-        const relationKeys: Array<string> = Object.getOwnPropertyNames((this as any).prototype)
-            .filter((name: string) =>
+        const relationKeys: Array<string> = Object.getOwnPropertyNames(
+            (this as any).prototype
+        ).filter(
+            (name: string) =>
                 name !== "constructor" &&
                 typeof (this as any).prototype[name] === "function" &&
                 !name.startsWith("_") &&
                 !Object.getOwnPropertyDescriptor(Model.prototype, name)
-            );
+        );
         const relationNames: Array<string> = relationKeys.filter((key: string) => {
             try {
                 const accessor: any = model.relationAccessor(model, key);
@@ -328,7 +343,10 @@ export default class Model<T = Record<string, any>> {
         return this.with(...relationNames);
     }
 
-    public static async loadMissing(models: Array<any>, ...relations: Array<string>): Promise<Array<any>> {
+    public static async loadMissing(
+        models: Array<any>,
+        ...relations: Array<string>
+    ): Promise<Array<any>> {
         const unloaded: Array<any> = models.filter((m: any) => !m.relationLoaded(relations[0]));
 
         if (unloaded.length > 0) await this.eagerLoad(unloaded, ...relations);
@@ -368,66 +386,6 @@ export default class Model<T = Record<string, any>> {
             default:
                 return value;
         }
-    }
-
-    protected relationAccessor(target: any, key: string): any {
-        const method: any = (target.constructor?.prototype || {})[key];
-
-        const accessor: any = (...args: Array<any>) => {
-            const relation: any = Reflect.apply(method, target, args);
-
-            if (relation instanceof Relation) relation.name = key;
-
-            return relation;
-        };
-
-        accessor.__isRelation = (): boolean => {
-            return method instanceof Relation;
-        };
-
-        accessor.then = (resolve: any, reject: any): Promise<any> => {
-            const modelClass: any = (target as any).constructor;
-
-            if (modelClass?.lazyLoadingPreventionEnabled === true) {
-                const error: Error = new RelationException(
-                    `Attempted to lazy load relation [${key}] on [${modelClass.name}] but lazy loading has been prevented.`
-                );
-
-                reject(error);
-
-                return Promise.resolve();
-            }
-
-            const relation: any = Reflect.apply(method, target, []);
-
-            relation.name = key;
-
-            return relation.then(resolve, reject);
-        };
-
-        return accessor;
-    }
-
-    protected callableRelation(target: any, key: string, cached: Array<any>): Array<any> {
-        const accessor: any = this.relationAccessor(target, key);
-
-        const proxy: any = new Proxy(accessor, {
-            get: (t: any, prop: any): any => {
-                if (prop === "then") {
-                    return (resolve: any, reject: any): Promise<any> => {
-                        return Promise.resolve(cached).then(resolve, reject);
-                    };
-                }
-
-                if (prop in cached) return Reflect.get(t, prop, cached);
-
-                const value: any = Reflect.get(t, prop, t);
-
-                return typeof value === "function" ? value.bind(t) : value;
-            }
-        });
-
-        return proxy as Array<any>;
     }
 
     protected static resolveRelation(name: string): Relation {
@@ -486,7 +444,10 @@ export default class Model<T = Record<string, any>> {
                 return typeof value === "string" ? value : JSON.stringify(value);
             case "datetime":
             case "timestamp":
-                if (value && typeof value.toFormat === "function") return value.toFormat((this.constructor as any).dateFormat || "yyyy-MM-dd HH:mm:ss");
+                if (value && typeof value.toFormat === "function")
+                    return value.toFormat(
+                        (this.constructor as any).dateFormat || "yyyy-MM-dd HH:mm:ss"
+                    );
 
                 return value;
             default:
@@ -494,49 +455,82 @@ export default class Model<T = Record<string, any>> {
         }
     }
 
-    protected rehydrateJsonForPg(outgoing: Record<string, any>): void {
-        const casts: Record<string, string> | undefined = (this.constructor as any).casts;
+    protected static snapshotValue(
+        value: any,
+        seen: WeakMap<object, any> = new WeakMap<object, any>()
+    ): any {
+        if (value === null || typeof value !== "object") return value;
 
-        if (!casts) return;
+        if (seen.has(value)) return seen.get(value);
 
-        for (const [key, value] of Object.entries(outgoing)) {
-            const cast: string | undefined = casts[key];
+        if (value instanceof Date) {
+            const copy: Date = new Date(value.getTime());
 
-            if (
-                (
-                    cast === "json" ||
-                    cast === "array" ||
-                    cast === "object"
-                ) &&
-                typeof value === "string"
-            ) {
-                try {
-                    outgoing[key] = JSON.parse(value);
-                } catch {
-                    outgoing[key] = value;
-                }
-            }
+            seen.set(value, copy);
+
+            return copy;
         }
+
+        if (Buffer.isBuffer(value)) {
+            const copy: Buffer = Buffer.from(value);
+
+            seen.set(value, copy);
+
+            return copy;
+        }
+
+        if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+            const copy: any = structuredClone(value);
+
+            seen.set(value, copy);
+
+            return copy;
+        }
+
+        const prototype: object | null = Object.getPrototypeOf(value);
+
+        if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null)
+            return value;
+
+        const copy: any = Array.isArray(value) ? new Array(value.length) : Object.create(prototype);
+
+        seen.set(value, copy);
+
+        for (const key of Object.keys(value)) {
+            Object.defineProperty(copy, key, {
+                value: this.snapshotValue(value[key], seen),
+                enumerable: true,
+                configurable: true,
+                writable: true
+            });
+        }
+
+        return copy;
     }
 
     protected async insert(): Promise<boolean> {
         const modelClass: typeof Model = this.constructor as typeof Model;
 
-        if ((await this.fireModelEvent("saving")) === false) return false;
+        if (!(await this.fireModelEvent("saving"))) return false;
 
-        if ((await this.fireModelEvent("creating")) === false) return false;
+        if (!(await this.fireModelEvent("creating"))) return false;
 
         const attributes: Record<string, any> = this.attributes();
 
         if (modelClass.timestampsEnabled && modelClass.createdColumn) {
-            if (!attributes[modelClass.createdColumn]) attributes[modelClass.createdColumn] = modelClass.now();
+            if (!attributes[modelClass.createdColumn])
+                attributes[modelClass.createdColumn] = modelClass.now();
         }
 
         if (modelClass.timestampsEnabled && modelClass.updatedColumn) {
-            if (!attributes[modelClass.updatedColumn]) attributes[modelClass.updatedColumn] = modelClass.now();
+            if (!attributes[modelClass.updatedColumn])
+                attributes[modelClass.updatedColumn] = modelClass.now();
         }
 
-        if (modelClass.lockVersionColumn && attributes[modelClass.lockVersionColumn] === undefined) {
+        if (
+            modelClass.lockVersionColumn &&
+            attributes[modelClass.lockVersionColumn] === undefined
+        ) {
             attributes[modelClass.lockVersionColumn] = 1;
         }
 
@@ -548,28 +542,241 @@ export default class Model<T = Record<string, any>> {
 
         const builder: QueryBuilder = new QueryBuilder(modelClass.tableName);
 
-        if (builder.grammar.driverName() === DatabaseDriverEnum.Pg) this.rehydrateJsonForPg(outgoing);
+        if (builder.grammar.driverName() === DatabaseDriverEnum.Pg)
+            this.rehydrateJsonForPg(outgoing);
 
-        const id: any = await builder.ins
+        const id: any = await builder.insertGetId(outgoing, modelClass.idColumn);
+
+        if (
+            modelClass.idColumn &&
+            id !== undefined &&
+            attributes[modelClass.idColumn] === undefined
+        ) {
+            attributes[modelClass.idColumn] = this.castIncoming(modelClass.idColumn, id);
+        }
+
+        this._exists = true;
+        this._attributes = {...attributes};
+        this.syncOriginal(attributes);
+
+        await this.fireModelEvent("created");
+        await this.fireModelEvent("saved");
+
+        return true;
+    }
+
+    private relationAccessor(target: any, key: string): any {
+        const method: any = (target.constructor?.prototype || {})[key];
+
+        if (typeof method !== "function")
+            throw new RelationException(
+                `Relation "${key}" is not defined on ${target.constructor.name}.`
+            );
+
+        const accessor: any = (...args: Array<any>) => {
+            const relation: any = Reflect.apply(method, target, args);
+
+            if (relation instanceof Relation) relation.name = key;
+
+            return relation;
+        };
+
+        accessor.__isRelation = (): boolean => {
+            return method instanceof Relation;
+        };
+
+        accessor.then = (resolve: any, reject: any): Promise<any> => {
+            const modelClass: any = (target as any).constructor;
+
+            if (modelClass?.lazyLoadingPreventionEnabled === true) {
+                const error: Error = new RelationException(
+                    `Attempted to lazy load relation [${key}] on [${modelClass.name}] but lazy loading has been prevented.`
+                );
+
+                reject(error);
+
+                return Promise.resolve();
+            }
+
+            const relation: any = Reflect.apply(method, target, []);
+
+            relation.name = key;
+
+            return relation.then(resolve, reject);
+        };
+
+        return accessor;
+    }
+
+    private rehydrateJsonForPg(outgoing: Record<string, any>): void {
+        const casts: Record<string, string> | undefined = (this.constructor as any).casts;
+
+        if (!casts) return;
+
+        for (const [key, value] of Object.entries(outgoing)) {
+            const cast: string | undefined = casts[key];
+
+            if (
+                (cast === "json" || cast === "array" || cast === "object") &&
+                typeof value === "string"
+            ) {
+                try {
+                    outgoing[key] = JSON.parse(value);
+                } catch {
+                    outgoing[key] = value;
+                }
+            }
+        }
+    }
+
+    private callableRelation(target: any, key: string, cached: Array<any>): Array<any> {
+        const accessor: any = this.relationAccessor(target, key);
+
+        const proxy: any = new Proxy(accessor, {
+            get: (t: any, prop: any): any => {
+                if (prop === "then") {
+                    return (resolve: any, reject: any): Promise<any> => {
+                        return Promise.resolve(cached).then(resolve, reject);
+                    };
+                }
+
+                if (prop in cached) return Reflect.get(t, prop, cached);
+
+                const value: any = Reflect.get(t, prop, t);
+
+                return typeof value === "function" ? value.bind(t) : value;
+            }
+        });
+
+        return proxy as Array<any>;
+    }
+
+    private static modelMethodKeys(): Set<string> {
+        if (MODEL_METHOD_KEYS) return MODEL_METHOD_KEYS;
+
+        const keys: Set<string> = new Set<string>();
+
+        for (const key of Object.getOwnPropertyNames(Model.prototype)) keys.add(key);
+        for (const key of Object.getOwnPropertyNames(Object.prototype)) keys.add(key);
+
+        MODEL_METHOD_KEYS = keys;
+
+        return keys;
+    }
+
+    private static relationMethodKeys(ctor: object): Set<string> {
+        let keys: Set<string> | undefined = RELATION_METHOD_KEYS.get(ctor);
+
+        if (!keys) {
+            keys = new Set<string>();
+
+            let proto: any = (ctor as any).prototype;
+
+            while (proto && proto !== Model.prototype) {
+                for (const key of Object.getOwnPropertyNames(proto)) {
+                    if (typeof proto[key] === "function") keys.add(key);
+                }
+
+                proto = Object.getPrototypeOf(proto);
+            }
+
+            RELATION_METHOD_KEYS.set(ctor, keys);
+        }
+
+        return keys;
     }
 
     private static readonly MODEL_PROXY_HANDLERS: ProxyHandler<Model<any>> = {
-        get: (target: Model<any>, prop: PropertyKey, receiver: any): any => {
+        get: (target: Model<any>, prop: string | symbol, receiver: any): any => {
             if (typeof prop === "symbol") return Reflect.get(target, prop, receiver);
 
             const key: string = prop as string;
 
             if (key.startsWith("_")) return Reflect.get(target, key, receiver);
 
-            if (Object.prototype.hasOwnProperty.call((target as any)._relations, key)) {
-                const cached: any = (target as any)._relations[key];
+            if (Object.prototype.hasOwnProperty.call(target._relations, key)) {
+                const cached: any = target._relations[key];
 
-                if (Array.isArray(cached)) return (target as any).callableRelation(target, key, cached);
+                if (Array.isArray(cached))
+                    return (target as any).callableRelation(target, key, cached);
 
                 return cached;
             }
 
-            if (Model.mo)
+            if (Model.modelMethodKeys().has(key)) return Reflect.get(target, key, receiver);
+
+            if (Model.relationMethodKeys(target.constructor).has(key))
+                return target.relationAccessor(target, key);
+
+            if (key === "id") {
+                const modelClass: any = target.constructor;
+
+                return target.getAttribute(modelClass.idColumn);
+            }
+
+            return target.getAttribute(key);
+        },
+        set: (target: Model<any>, prop: string | symbol, value: any): boolean => {
+            if (typeof prop === "symbol") {
+                Reflect.set(target, prop, value);
+
+                return true;
+            }
+
+            const key: string = prop as string;
+
+            if (key.startsWith("_")) {
+                target[key] = value;
+
+                return true;
+            }
+
+            if (key === "id") {
+                const modelClass: any = target.constructor;
+
+                target.setAttribute(modelClass.idColumn, value);
+
+                return true;
+            }
+
+            if (Object.prototype.hasOwnProperty.call(target._relations, key)) {
+                target._relations[key] = value;
+
+                return true;
+            }
+
+            target.setAttribute(key, value);
+
+            return true;
+        },
+        ownKeys: (target: Model<any>): ArrayLike<string | symbol> => {
+            const owned: Set<string | symbol> = new Set<string | symbol>(Reflect.ownKeys(target));
+            const attributeKeys: Array<string> = Object.keys(target._attributes).filter(
+                (key: string) => !owned.has(key)
+            );
+
+            return [...owned, ...attributeKeys];
+        },
+        getOwnPropertyDescriptor: (
+            target: Model<any>,
+            prop: string | symbol
+        ): PropertyDescriptor | undefined => {
+            if (
+                typeof prop === "string" &&
+                Object.prototype.hasOwnProperty.call(target._attributes, prop)
+            )
+                return {
+                    enumerable: true,
+                    configurable: true,
+                    writable: true,
+                    value: target.getAttribute(prop)
+                };
+
+            return Reflect.getOwnPropertyDescriptor(target, prop);
         }
     };
+
+    private syncOriginal(attributes: Record<string, any> = this._attributes): void {
+        this._original = (this.constructor as typeof Model).snapshotValue(attributes);
+    }
 }
