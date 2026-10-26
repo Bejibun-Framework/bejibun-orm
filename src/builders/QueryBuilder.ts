@@ -14,6 +14,7 @@ import type {
     WhereClause,
     WhereInValues
 } from "@/types/query";
+import {isNotEmpty} from "@bejibun/utils";
 import Grammar from "@/builders/Grammar";
 import DatabaseDriverEnum from "@/enums/DatabaseDriverEnum";
 import DB from "@/facades/DB";
@@ -1196,6 +1197,82 @@ export default class QueryBuilder {
         return insertedId;
     }
 
+    public async update(values: Record<string, any>): Promise<number> {
+        return this.mysqlPinned(async () => {
+            const compiled: CompiledQuery = this.compileUpdate(values);
+            const result: Array<any> = await this.grammar.run(compiled.sql, compiled.bindings);
+            const count: number = this.affectedRows(result);
+
+            if (this.grammar.driverName() === DatabaseDriverEnum.Mysql && count === 0) {
+                const rows: Array<any> = await this.grammar.run("SELECT ROW_COUNT() AS cnt");
+
+                if (rows?.[0] && typeof rows[0].cnt !== "undefined")
+                    return Number(rows[0].cnt) || 0;
+            }
+
+            return count;
+        });
+    }
+
+    public async updateOrInsert(
+        attributes: Record<string, any>,
+        values: Record<string, any> = {}
+    ): Promise<boolean> {
+        const probe: QueryBuilder = this.clone();
+
+        for (const [key, value] of Object.entries(attributes)) {
+            probe.where(key, value);
+        }
+
+        const existing: Record<string, any> | undefined = (
+            await probe.fetch<Record<string, any>>()
+        )[0];
+
+        if (existing) {
+            if (Object.keys(values).length === 0) return true;
+
+            const updater: QueryBuilder = this.clone();
+
+            for (const [key, value] of Object.entries(attributes)) {
+                updater.where(key, value);
+            }
+
+            await updater.update(values);
+
+            return true;
+        }
+
+        await this.clone().insert({...attributes, ...values});
+
+        return true;
+    }
+
+    public async increment(
+        column: string,
+        amount: number = 1,
+        extra: Record<string, any> = {}
+    ): Promise<number> {
+        return this.update({
+            ...extra,
+            [column]: {
+                raw: `${this.grammar.quote(column)} + ${amount}`
+            }
+        });
+    }
+
+    public async decrement(
+        column: string,
+        amount: number = 1,
+        extra: Record<string, any> = {}
+    ): Promise<number> {
+        return this.update({
+            ...extra,
+            [column]: {
+                raw: `${this.grammar.quote(column)} - ${amount}`
+            }
+        });
+    }
+
     public lock(lock: boolean | string = true): QueryBuilder {
         this.lockMode = lock;
 
@@ -1661,6 +1738,31 @@ export default class QueryBuilder {
         }
     }
 
+    protected compileUpdate(values: Record<string, any>): CompiledQuery {
+        const g: Grammar = this.grammar;
+        const sets: Array<string> = [];
+        const setBindings: Array<any> = [];
+
+        for (const [column, value] of Object.entries(values)) {
+            if (isNotEmpty(value) && typeof value === "object" && "raw" in value) {
+                sets.push(`${g.quote(column)} = ${this.literal(value)}`);
+            } else {
+                sets.push(`${g.quote(column)} = ?`);
+                setBindings.push(value);
+            }
+        }
+
+        const wherePart: CompiledQuery = this.compileWheres();
+
+        return {
+            sql: `UPDATE ${g.quote(this.fromTable!)} SET ${sets.join(", ")}${wherePart.sql}`.replace(
+                /\s+/g,
+                " "
+            ),
+            bindings: [...setBindings, ...wherePart.bindings]
+        };
+    }
+
     protected compileSignature(): string | null {
         if (this._unions.length > 0) return null;
 
@@ -1921,5 +2023,42 @@ export default class QueryBuilder {
         }
 
         return Number(value) || 0;
+    }
+
+    private literal(value: any): string {
+        if (isNotEmpty(value) && typeof value === "object" && "raw" in value)
+            return value.raw as string;
+
+        return "?";
+    }
+
+    private affectedRows(result: Array<any>): number {
+        const first: any = result?.[0];
+
+        if (result && typeof (result as any).length !== "number" && !Array.isArray(result)) {
+            const anyResult: any = result;
+
+            return (
+                Number(anyResult.affectedRows) ||
+                Number(anyResult.changes) ||
+                Number(anyResult.meta?.affectedRows) ||
+                Number(anyResult.count) ||
+                0
+            );
+        }
+
+        if (typeof first === "object" && first !== null)
+            return (
+                Number(first.affectedRows) ||
+                Number(first.changes) ||
+                Number(first.meta?.affectedRows) ||
+                (result && Number((result as any).count)) ||
+                (Array.isArray(result) && result.length) ||
+                0
+            );
+
+        const count: number = result && Number((result as any).count);
+
+        return Array.isArray(result) ? count || result.length : 0;
     }
 }

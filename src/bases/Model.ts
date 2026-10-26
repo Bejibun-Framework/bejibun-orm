@@ -5,6 +5,7 @@ import Luxon from "@bejibun/utils/facades/Luxon";
 import Relation from "@/bases/Relation";
 import QueryBuilder from "@/builders/QueryBuilder";
 import DatabaseDriverEnum from "@/enums/DatabaseDriverEnum";
+import OptimisticLockException from "@/exceptions/OptimisticLockException";
 import RelationException from "@/exceptions/RelationException";
 
 let MODEL_METHOD_KEYS: Set<string> | null = null;
@@ -95,12 +96,76 @@ export default class Model<T = Record<string, any>> {
             let persisted: boolean;
 
             if (!this._exists) persisted = await this.insert();
-            else persisted = await perf;
+            else persisted = await this.performUpdate();
+
+            if (persisted) await this.touchOwners();
+
+            return this;
         } finally {
             done();
 
             if (this._saveChain === link) this._saveChain = undefined;
         }
+    }
+
+    public async increment(
+        column: string,
+        amount: number = 1,
+        extra: Record<string, any> = {}
+    ): Promise<Model> {
+        const modelClass: typeof Model = this.constructor as typeof Model;
+
+        if (!this._exists) return this;
+
+        await new QueryBuilder(modelClass.tableName)
+            .where(modelClass.idColumn, this.getAttribute(modelClass.idColumn))
+            .increment(column, amount, extra);
+
+        const current: number = Number(this.getAttribute(column)) || 0;
+
+        this.setAttribute(column, current + amount);
+
+        for (const [key, value] of Object.entries(extra)) {
+            this.setAttribute(key, value);
+        }
+
+        this._changes = {
+            ...extra,
+            [column]: this.getAttribute(column)
+        };
+        this._original[column] = this.getAttribute(column);
+
+        return this;
+    }
+
+    public async decrement(
+        column: string,
+        amount: number = 1,
+        extra: Record<string, any> = {}
+    ): Promise<Model> {
+        const modelClass: typeof Model = this.constructor as typeof Model;
+
+        if (!this._exists) return this;
+
+        await new QueryBuilder(modelClass.tableName)
+            .where(modelClass.idColumn, this.getAttribute(modelClass.idColumn))
+            .decrement(column, amount, extra);
+
+        const current: number = Number(this.getAttribute(column)) || 0;
+
+        this.setAttribute(column, current - amount);
+
+        for (const [key, value] of Object.entries(extra)) {
+            this.setAttribute(key, value);
+        }
+
+        this._changes = {
+            ...extra,
+            [column]: this.getAttribute(column)
+        };
+        this._original[column] = this.getAttribute(column);
+
+        return this;
     }
 
     public fill(attributes: Record<string, any>): Model<T> {
@@ -126,6 +191,27 @@ export default class Model<T = Record<string, any>> {
         }
 
         return this;
+    }
+
+    public getDirty(): Record<string, any> {
+        const dirty: Record<string, any> = {};
+
+        for (const key of Object.keys(this._attributes)) {
+            const value: any = this.getAttribute(key);
+
+            if (!(this.constructor as typeof Model).attributesEqual(this._original[key], value))
+                dirty[key] = value;
+        }
+
+        return dirty;
+    }
+
+    public isDirty(key?: string): boolean {
+        const dirty: Record<string, any> = this.getDirty();
+
+        if (key) return key in dirty;
+
+        return Object.keys(dirty).length > 0;
     }
 
     public async load(relation: string): Promise<any> {
@@ -354,6 +440,26 @@ export default class Model<T = Record<string, any>> {
         return models;
     }
 
+    public async touch(): Promise<boolean> {
+        const modelClass: typeof Model = this.constructor as typeof Model;
+
+        if (!modelClass.updatedColumn || !this._exists) return false;
+
+        const stamp: string = modelClass.now();
+
+        await new QueryBuilder(modelClass.tableName)
+            .where(modelClass.idColumn, this.getAttribute(modelClass.idColumn))
+            .update({
+                [modelClass.updatedColumn]: stamp
+            });
+
+        this.setAttribute(modelClass.updatedColumn, stamp);
+
+        this._original[modelClass.updatedColumn] = this.getAttribute(modelClass.updatedColumn);
+
+        return true;
+    }
+
     protected proxyHandlers(): ProxyHandler<Model<any>> {
         return Model.MODEL_PROXY_HANDLERS;
     }
@@ -508,6 +614,38 @@ export default class Model<T = Record<string, any>> {
         return copy;
     }
 
+    protected static attributesEqual(a: any, b: any): boolean {
+        if (a === b) return true;
+
+        if (a === null || b === null || a === undefined || b === undefined) return a === b;
+
+        const ta: string = typeof a;
+        const tb: string = typeof b;
+
+        if (ta === "object" && tb === "object") {
+            if (a instanceof Date || b instanceof Date) {
+                return a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : false;
+            }
+
+            try {
+                return JSON.stringify(a) === JSON.stringify(b);
+            } catch {
+                return false;
+            }
+        }
+
+        if ((ta === "number" && tb === "string") || (ta === "string" && tb === "number")) {
+            const numericA: number = Number(a);
+            const numericB: number = Number(b);
+
+            return Number.isFinite(numericA) && Number.isFinite(numericB)
+                ? numericA === numericB
+                : false;
+        }
+
+        return false;
+    }
+
     protected async insert(): Promise<boolean> {
         const modelClass: typeof Model = this.constructor as typeof Model;
 
@@ -563,6 +701,87 @@ export default class Model<T = Record<string, any>> {
         await this.fireModelEvent("saved");
 
         return true;
+    }
+
+    protected async performUpdate(): Promise<boolean> {
+        const modelClass: typeof Model = this.constructor as typeof Model;
+
+        const id: any = this.getAttribute(modelClass.idColumn);
+
+        if (id === undefined) return true;
+
+        const dirty: Record<string, any> = this.getDirty();
+
+        if (modelClass.timestampsEnabled && modelClass.updatedColumn) {
+            dirty[modelClass.updatedColumn] = modelClass.now();
+        }
+
+        if (Object.keys(dirty).length === 0) return true;
+
+        if (!(await this.fireModelEvent("saving"))) return false;
+        if (!(await this.fireModelEvent("updating"))) return false;
+
+        this._changes = {...dirty};
+
+        const outgoing: Record<string, any> = {};
+
+        for (const [key, value] of Object.entries(dirty)) {
+            outgoing[key] = this.castOutgoing(key, value);
+        }
+
+        const versionColumn: string | null = modelClass.lockVersionColumn;
+        const originalVersion: any =
+            versionColumn === null ? undefined : this._original[versionColumn];
+        const hasVersion: boolean = versionColumn !== null && originalVersion !== undefined;
+
+        if (hasVersion) {
+            outgoing[versionColumn] = Number(originalVersion) + 1;
+        }
+
+        const builder: QueryBuilder = new QueryBuilder(modelClass.tableName);
+
+        if (builder.grammar.driverName() === DatabaseDriverEnum.Pg)
+            this.rehydrateJsonForPg(outgoing);
+
+        let updater: QueryBuilder = builder.where(modelClass.idColumn, id);
+
+        if (hasVersion) {
+            updater = updater.where(versionColumn, originalVersion);
+        }
+
+        const affected: number = await updater.update(outgoing);
+
+        if (hasVersion && affected === 0) {
+            throw new OptimisticLockException(
+                modelClass.name,
+                this.getAttribute(modelClass.idColumn)
+            );
+        }
+
+        if (hasVersion) this.setAttribute(versionColumn as string, outgoing[versionColumn]);
+
+        this.syncOriginal();
+
+        await this.fireModelEvent("updated");
+        await this.fireModelEvent("saved");
+
+        return true;
+    }
+
+    protected async touchOwners(): Promise<void> {
+        const modelClass: typeof Model = this.constructor as typeof Model;
+        const prototype: any = Object.getPrototypeOf(this);
+
+        for (const name of modelClass.touches || []) {
+            const accessor: any = prototype ? prototype[name] : undefined;
+
+            if (typeof accessor !== "function") continue;
+
+            const relation: any = accessor.call(this);
+
+            if (relation instanceof Relation && typeof relation.touch === "function")
+                await relation.touch();
+        }
     }
 
     private relationAccessor(target: any, key: string): any {

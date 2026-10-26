@@ -1,6 +1,8 @@
 import type {RelationType} from "@/types/relation";
 import Str from "@bejibun/utils/facades/Str";
+import Model from "@/bases/Model";
 import QueryBuilder from "@/builders/QueryBuilder";
+import RelationException from "@/exceptions/RelationException";
 
 export default class Relation {
     public type: RelationType;
@@ -264,6 +266,285 @@ export default class Relation {
         return relation;
     }
 
+    public pivot(): string {
+        return this.pivotTable!;
+    }
+
+    public as(alias: string): Relation {
+        this.pivotAlias = alias;
+
+        return this;
+    }
+
+    public using(pivotModel: typeof Model): Relation {
+        this.pivotModel = pivotModel;
+
+        return this;
+    }
+
+    public withPivot(...columns: Array<string>): Relation {
+        this.pivotColumns.push(...columns);
+
+        return this;
+    }
+
+    public query(): QueryBuilder {
+        switch (this.type) {
+            case "belongsTo":
+                return this.related
+                    .query()
+                    .where(this.ownerKey, "=", this.parent.getAttribute(this.foreignKey));
+            case "belongsToMany":
+                return this.related
+                    .query()
+                    .select(
+                        `${Relation.tableOf(this.related)}.*`,
+                        ...this.pivotColumns.map(
+                            (column: string) => `${this.pivot()}.${column} AS ${column}`
+                        )
+                    )
+                    .join(
+                        this.pivot(),
+                        `${this.pivot()}.${this.relatedKey!}`,
+                        "=",
+                        `${Relation.tableOf(this.related)}.${this.relatedOwnerKey!}`
+                    )
+                    .where(
+                        `${this.pivot()}.${this.foreignKey}`,
+                        "=",
+                        this.parent.getAttribute(this.ownerKey)
+                    );
+            case "hasManyThrough":
+                return this.related
+                    .query()
+                    .join(
+                        this.throughTable!,
+                        `${this.throughTable!}.${this.secondKey!}`,
+                        "=",
+                        `${Relation.tableOf(this.related)}.${this.secondLocalKey!}`
+                    )
+                    .where(
+                        `${this.throughTable!}.${this.foreignKey}`,
+                        "=",
+                        this.parent.getAttribute(this.ownerKey)
+                    );
+            case "morphTo": {
+                const typeName: any = this.parent.getAttribute(this.typeColumn!);
+                const id: any = this.parent.getAttribute(this.foreignKey);
+
+                if (!typeName || id === null || id === undefined)
+                    return new QueryBuilder("__empty__").whereRaw("1 = 0");
+
+                const modelClass: any = this.related || this.resolveMorphModel(typeName);
+
+                return modelClass.query().where(modelClass.idColumn || "id", "=", id);
+            }
+            case "morphMany":
+                return this.related
+                    .query()
+                    .where(
+                        `${Relation.tableOf(this.related)}.${this.typeColumn!}`,
+                        "=",
+                        this.parent.constructor.name
+                    )
+                    .where(
+                        `${Relation.tableOf(this.related)}.${this.foreignKey}`,
+                        "=",
+                        this.parent.getAttribute(this.ownerKey)
+                    );
+            case "morphToMany":
+            case "morphedByMany":
+                return this.related
+                    .query()
+                    .select(`${Relation.tableOf(this.related)}.*`)
+                    .join(
+                        this.pivotTable!,
+                        `${this.pivotTable!}.${this.relatedKey!}`,
+                        "=",
+                        `${Relation.tableOf(this.related)}.${this.relatedOwnerKey!}`
+                    )
+                    .where(
+                        `${this.pivotTable!}.${this.morphType!}`,
+                        "=",
+                        this.parent.constructor.name
+                    )
+                    .where(
+                        `${this.pivotTable!}.${this.foreignKey}`,
+                        "=",
+                        this.parent.getAttribute(this.ownerKey)
+                    );
+            default:
+                return this.related
+                    .query()
+                    .where(this.foreignKey, "=", this.parent.getAttribute(this.ownerKey));
+        }
+    }
+
+    public applyExistenceQuery(
+        sub: QueryBuilder,
+        parentTable: string,
+        operator: string = ">=",
+        count: number = 1
+    ): void {
+        const relatedTable: string = Relation.tableOf(this.related);
+        const useCount: boolean = !(operator === ">=" && count === 1);
+
+        sub.from(relatedTable);
+
+        switch (this.type) {
+            case "belongsTo":
+                sub.whereColumn(
+                    `${relatedTable}.${this.ownerKey}`,
+                    "=",
+                    `${parentTable}.${this.foreignKey}`
+                );
+
+                break;
+            case "belongsToMany": {
+                sub.join(
+                    this.pivot(),
+                    `${this.pivot()},${this.relatedKey!}`,
+                    "=",
+                    `${relatedTable}.${this.relatedOwnerKey!}`
+                );
+                sub.whereColumn(
+                    `${this.pivot()}.${this.foreignKey}`,
+                    "=",
+                    `${parentTable}.${this.ownerKey}`
+                );
+
+                if (useCount)
+                    this.countConstraint(
+                        sub,
+                        `${this.pivot()}.${this.foreignKey}`,
+                        operator,
+                        count
+                    );
+
+                break;
+            }
+            case "hasManyThrough":
+            case "hasOneThrough": {
+                sub.join(
+                    this.throughTable!,
+                    `${this.throughTable!},${this.secondKey!}`,
+                    "=",
+                    `${relatedTable}.${this.secondLocalKey!}`
+                );
+                sub.whereColumn(
+                    `${this.throughTable!}.${this.foreignKey}`,
+                    "=",
+                    `${parentTable}.${this.ownerKey}`
+                );
+
+                if (useCount)
+                    this.countConstraint(
+                        sub,
+                        `${this.throughTable!}.${this.foreignKey}`,
+                        operator,
+                        count
+                    );
+
+                break;
+            }
+            case "morphMany": {
+                sub.where(`${relatedTable}.${this.typeColumn!}`, "=", this.parent.constructor.name);
+                sub.whereColumn(
+                    `${relatedTable}.${this.foreignKey}`,
+                    "=",
+                    `${parentTable}.${this.ownerKey}`
+                );
+
+                if (useCount)
+                    this.countConstraint(
+                        sub,
+                        `${relatedTable}.${this.foreignKey}`,
+                        operator,
+                        count
+                    );
+
+                break;
+            }
+            case "morphToMany":
+            case "morphedByMany": {
+                sub.join(
+                    this.pivotTable!,
+                    `${this.pivotTable!}.${this.relatedKey!}`,
+                    "=",
+                    `${relatedTable}.${this.relatedOwnerKey!}`
+                );
+                sub.where(
+                    `${this.pivotTable!}.${this.morphType!}`,
+                    "=",
+                    this.parent.constructor.name
+                );
+                sub.whereColumn(
+                    `${this.pivotTable!}.${this.foreignKey}`,
+                    "=",
+                    `${parentTable}.${this.ownerKey}`
+                );
+
+                if (useCount)
+                    this.countConstraint(
+                        sub,
+                        `${this.pivotTable!}.${this.foreignKey}`,
+                        operator,
+                        count
+                    );
+
+                break;
+            }
+            case "morphTo":
+                throw new RelationException(
+                    "has()/whereHas() is not supported for morphTo relations (dynamic target type)."
+                );
+            default: {
+                sub.whereColumn(
+                    `${relatedTable}.${this.foreignKey}`,
+                    "=",
+                    `${parentTable}.${this.ownerKey}`
+                );
+
+                if (useCount)
+                    this.countConstraint(
+                        sub,
+                        `${relatedTable}.${this.foreignKey}`,
+                        operator,
+                        count
+                    );
+            }
+        }
+    }
+
+    public async get(): Promise<any> {
+        const rows: Array<Record<string, any>> = await this.query().getRaw();
+
+        if (this.type === "hasOne" || this.type === "belongsTo" || this.type === "morphTo") {
+            const single: Record<string, any> | undefined = rows[0];
+
+            if (!single) return null;
+
+            return ((await this.related.hydrate([single])) as any)[0];
+        }
+
+        return this.related.hydrate(rows);
+    }
+
+    public async touch(): Promise<boolean> {
+        if (this.type !== "belongsTo" && this.type !== "morphTo") return false;
+
+        const owner: any = await this.get();
+        const target: any = Array.isArray(owner) ? owner[0] : owner;
+
+        if (target && typeof target.touch === "function") {
+            await target.touch();
+
+            return true;
+        }
+
+        return false;
+    }
+
     private applyConstraints(builder: any): any {
         if (!this.constraints) return builder;
 
@@ -283,5 +564,24 @@ export default class Relation {
             related?.tableName ||
             (Str.toSnakeCase(related?.name || "model", "_", true).pluralize() as string)
         );
+    }
+
+    private resolveMorphModel(type: string): any {
+        if (this.related) return this.related;
+
+        throw new RelationException(
+            `Cannot resolve morph type "${type}" -- pass the related class to morphTo().`
+        );
+    }
+
+    protected countConstraint(
+        sub: QueryBuilder,
+        column: string,
+        operator: string,
+        count: number
+    ): void {
+        sub.select(column);
+        sub.groupBy(column);
+        sub.havingRaw(`COUNT(*) ${operator} ?`, [count]);
     }
 }
