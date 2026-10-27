@@ -7,6 +7,7 @@ import QueryBuilder from "@/builders/QueryBuilder";
 import DatabaseDriverEnum from "@/enums/DatabaseDriverEnum";
 import OptimisticLockException from "@/exceptions/OptimisticLockException";
 import RelationException from "@/exceptions/RelationException";
+import {UniqueConstraintViolationException} from "@/exceptions";
 
 let MODEL_METHOD_KEYS: Set<string> | null = null;
 const RELATION_METHOD_KEYS: WeakMap<object, Set<string>> = new WeakMap<object, Set<string>>();
@@ -82,7 +83,7 @@ export default class Model<T = Record<string, any>> {
         return Luxon.DateTime.now().toFormat(this.dateFormat || "yyyy-MM-dd HH:mm:ss.SSS");
     }
 
-    public async save(): Promise<Model> {
+    public async save(): Promise<Model<any>> {
         const tail: Promise<void> = this._saveChain ?? Promise.resolve();
         let done!: () => void;
         const slot: Promise<void> = new Promise<void>((resolve) => (done = resolve));
@@ -112,13 +113,13 @@ export default class Model<T = Record<string, any>> {
         column: string,
         amount: number = 1,
         extra: Record<string, any> = {}
-    ): Promise<Model> {
+    ): Promise<Model<any>> {
         const modelClass: typeof Model = this.constructor as typeof Model;
 
         if (!this._exists) return this;
 
         await new QueryBuilder(modelClass.tableName)
-            .where(modelClass.idColumn, this.getAttribute(modelClass.idColumn))
+            .where(modelClass.idColumn, "=", this.getAttribute(modelClass.idColumn))
             .increment(column, amount, extra);
 
         const current: number = Number(this.getAttribute(column)) || 0;
@@ -142,13 +143,13 @@ export default class Model<T = Record<string, any>> {
         column: string,
         amount: number = 1,
         extra: Record<string, any> = {}
-    ): Promise<Model> {
+    ): Promise<Model<any>> {
         const modelClass: typeof Model = this.constructor as typeof Model;
 
         if (!this._exists) return this;
 
         await new QueryBuilder(modelClass.tableName)
-            .where(modelClass.idColumn, this.getAttribute(modelClass.idColumn))
+            .where(modelClass.idColumn, "=", this.getAttribute(modelClass.idColumn))
             .decrement(column, amount, extra);
 
         const current: number = Number(this.getAttribute(column)) || 0;
@@ -212,6 +213,10 @@ export default class Model<T = Record<string, any>> {
         if (key) return key in dirty;
 
         return Object.keys(dirty).length > 0;
+    }
+
+    public isClean(key?: string): boolean {
+        return !this.isDirty(key);
     }
 
     public async load(relation: string): Promise<any> {
@@ -440,6 +445,22 @@ export default class Model<T = Record<string, any>> {
         return models;
     }
 
+    public static async find(id: any): Promise<any | undefined> {
+        const model: any = await this.query().where(this.idColumn, "=", id).first();
+
+        if (!model) return undefined;
+
+        return model;
+    }
+
+    public static async create(attributes: Record<string, any>): Promise<any> {
+        const instance: any = new (this as any)(attributes);
+
+        await instance.save();
+
+        return instance;
+    }
+
     public async touch(): Promise<boolean> {
         const modelClass: typeof Model = this.constructor as typeof Model;
 
@@ -448,7 +469,7 @@ export default class Model<T = Record<string, any>> {
         const stamp: string = modelClass.now();
 
         await new QueryBuilder(modelClass.tableName)
-            .where(modelClass.idColumn, this.getAttribute(modelClass.idColumn))
+            .where(modelClass.idColumn, "=", this.getAttribute(modelClass.idColumn))
             .update({
                 [modelClass.updatedColumn]: stamp
             });
@@ -458,6 +479,233 @@ export default class Model<T = Record<string, any>> {
         this._original[modelClass.updatedColumn] = this.getAttribute(modelClass.updatedColumn);
 
         return true;
+    }
+
+    public async delete(): Promise<boolean> {
+        const modelClass: typeof Model = this.constructor as typeof Model;
+        const id: any = this.getAttribute(modelClass.idColumn);
+
+        if (id === undefined) return false;
+
+        if (!(await this.fireModelEvent("deleting"))) return false;
+
+        const deleted: number = await new QueryBuilder(modelClass.tableName)
+            .where(modelClass.idColumn, "=", id)
+            .delete();
+
+        this._exists = false;
+
+        await this.fireModelEvent("deleted");
+
+        if (deleted > 0) await this.touchOwners();
+
+        return deleted > 0;
+    }
+
+    public async forceDelete(): Promise<boolean> {
+        const modelClass: typeof Model = this.constructor as typeof Model;
+        const id: any = this.getAttribute(modelClass.idColumn);
+
+        if (id === undefined) return false;
+
+        const deleted: number = await new QueryBuilder(modelClass.tableName)
+            .where(modelClass.idColumn, "=", id)
+            .delete();
+
+        this._exists = false;
+
+        return deleted > 0;
+    }
+
+    public getOriginal(key?: string): any {
+        const modelClass: typeof Model = this.constructor as typeof Model;
+
+        if (key) return modelClass.snapshotValue(this._original[key]);
+
+        return modelClass.snapshotValue(this._original);
+    }
+
+    public getChanges(): Record<string, any> {
+        return {...this._changes};
+    }
+
+    public replicate(except: Array<string> = []): any {
+        const modelClass: typeof Model = this.constructor as typeof Model;
+        const exclude: Set<string> = new Set<string>([
+            modelClass.idColumn,
+            ...(modelClass.createdColumn ? [modelClass.createdColumn] : []),
+            ...(modelClass.updatedColumn ? [modelClass.updatedColumn] : []),
+            ...except
+        ]);
+        const attributes: Record<string, any> = {};
+
+        for (const key of Object.keys(this._attributes)) {
+            if (exclude.has(key)) continue;
+
+            attributes[key] = this.getAttribute(key);
+        }
+
+        return new (this.constructor as any)(attributes);
+    }
+
+    public async fresh(...relations: Array<string>): Promise<Model | undefined> {
+        const modelClass: typeof Model = this.constructor as typeof Model;
+        const id: any = this.getAttribute(modelClass.idColumn);
+
+        if (id === undefined) return undefined;
+
+        const instance: any = await modelClass.find(id);
+
+        if (instance && relations.length > 0) await instance.load(...relations);
+
+        return instance;
+    }
+
+    public async refresh(): Promise<Model<any>> {
+        if (!this._exists) return this;
+
+        const modelClass: typeof Model = this.constructor as typeof Model;
+        const id: any = this.getAttribute(modelClass.idColumn);
+        const row: Record<string, any> | undefined = await new QueryBuilder(modelClass.tableName)
+            .where(modelClass.idColumn, "=", id)
+            .first();
+
+        if (row) {
+            const attrs: Record<string, any> = {};
+
+            for (const [key, value] of Object.entries(row)) {
+                attrs[key] = this.castIncoming(key, value);
+            }
+
+            this.syncOriginal(attrs);
+
+            this._attributes = {...attrs};
+            this._relations = {};
+        }
+
+        return this;
+    }
+
+    public toJSON(): Record<string, any> {
+        const modelClass: typeof Model = this.constructor as typeof Model;
+        const hiddenModel: Array<string> = this._privateHidden ?? modelClass.hidden;
+        const visibleModel: Array<string> = modelClass.visible || [];
+        const allowed: (key: string) => boolean =
+            visibleModel.length > 0 ? (key: string) => visibleModel.includes(key) : () => true;
+        const result: Record<string, any> = {};
+
+        for (const key of Object.keys(this._attributes)) {
+            if (!allowed(key)) continue;
+
+            if (hiddenModel.includes(key)) continue;
+
+            result[key] = this.castOutgoing(key, this.getAttribute(key));
+        }
+
+        for (const [key, value] of Object.entries(this._relations)) {
+            if (!allowed(key)) continue;
+
+            if (hiddenModel.includes(key)) continue;
+
+            result[key] =
+                value && typeof value.toJSON === "function"
+                    ? value.toJSON()
+                    : Array.isArray(value) &&
+                        value.length > 0 &&
+                        typeof value[0]?.toJSON === "function"
+                      ? value.map((item: any) => item.toJSON())
+                      : value;
+        }
+
+        return result;
+    }
+
+    public toArray(): Record<string, any> {
+        const result: Record<string, any> = this.toJSON();
+        const modelClass: typeof Model = this.constructor as typeof Model;
+
+        for (const attr of this._privateAppends ?? modelClass.appends) {
+            const accessor: string = `get${attr.charAt(0).toUpperCase()}${attr.slice(1)}Attribute`;
+
+            if (typeof (this as any)[accessor] === "function")
+                result[attr] = (this as any)[accessor]();
+        }
+
+        return result;
+    }
+
+    public makeVisible(...attributes: Array<string>): Model<any> {
+        const hidden: Array<string> =
+            this._privateHidden ?? (this.constructor as typeof Model).hidden;
+
+        this._privateHidden = hidden.filter((h: string) => !attributes.includes(h));
+
+        return this;
+    }
+
+    public makeHidden(...attributes: Array<string>): Model<any> {
+        this._privateHidden = [
+            ...(this._privateHidden ?? (this.constructor as typeof Model).hidden),
+            ...attributes
+        ];
+
+        return this;
+    }
+
+    public append(...attributes: Array<string>): Model<any> {
+        this._privateAppends = [
+            ...(this._privateAppends ?? (this.constructor as typeof Model).appends),
+            ...attributes
+        ];
+
+        return this;
+    }
+
+    public static async firstOrNew(
+        attributes: Record<string, any>,
+        values: Record<string, any> = {}
+    ): Promise<any> {
+        const found: any = await this.query()
+            .where((query: QueryBuilder) => {
+                for (const [key, value] of Object.entries(attributes)) {
+                    query.where(key, "=", value);
+                }
+            })
+            .first();
+
+        if (found) return found;
+
+        const model: any = new (this as any)(attributes);
+
+        if (Object.keys(values).length > 0) model.forceFill(values);
+
+        return model;
+    }
+
+    public static async firstOrCreate(
+        attributes: Record<string, any>,
+        values: Record<string, any> = {}
+    ): Promise<any> {
+        const search = (query: QueryBuilder): void => {
+            for (const [key, value] of Object.entries(attributes)) {
+                query.where(key, "=", value);
+            }
+        };
+        const instance: any = await this.query().where(search).first();
+
+        if (instance) return instance;
+
+        try {
+            return await this.create({...attributes, ...values});
+        } catch (error: any) {
+            if (!(error instanceof UniqueConstraintViolationException)) throw error;
+
+            const raced: any = await this.query().where(search).first();
+
+            if (raced) return raced;
+
+            throw error;
+        }
     }
 
     protected proxyHandlers(): ProxyHandler<Model<any>> {
@@ -489,6 +737,29 @@ export default class Model<T = Record<string, any>> {
                 return typeof value === "string" || typeof value === "number"
                     ? Luxon.DateTime.fromJSDate(new Date(value))
                     : value;
+            default:
+                return value;
+        }
+    }
+
+    protected castOutgoing(key: string, value: any): any {
+        const cast: string | undefined = (this.constructor as any).casts?.[key];
+
+        if (!cast) return value;
+
+        switch (cast) {
+            case "json":
+            case "array":
+            case "object":
+                return typeof value === "string" ? value : JSON.stringify(value);
+            case "datetime":
+            case "timestamp":
+                if (value && typeof value.toFormat === "function")
+                    return value.toFormat(
+                        (this.constructor as any).dateFormat || "yyyy-MM-dd HH:mm:ss"
+                    );
+
+                return value;
             default:
                 return value;
         }
@@ -536,29 +807,6 @@ export default class Model<T = Record<string, any>> {
         }
 
         return true;
-    }
-
-    protected castOutgoing(key: string, value: any): any {
-        const cast: string | undefined = (this.constructor as any).casts?.[key];
-
-        if (!cast) return value;
-
-        switch (cast) {
-            case "json":
-            case "array":
-            case "object":
-                return typeof value === "string" ? value : JSON.stringify(value);
-            case "datetime":
-            case "timestamp":
-                if (value && typeof value.toFormat === "function")
-                    return value.toFormat(
-                        (this.constructor as any).dateFormat || "yyyy-MM-dd HH:mm:ss"
-                    );
-
-                return value;
-            default:
-                return value;
-        }
     }
 
     protected static snapshotValue(
@@ -743,10 +991,10 @@ export default class Model<T = Record<string, any>> {
         if (builder.grammar.driverName() === DatabaseDriverEnum.Pg)
             this.rehydrateJsonForPg(outgoing);
 
-        let updater: QueryBuilder = builder.where(modelClass.idColumn, id);
+        let updater: QueryBuilder = builder.where(modelClass.idColumn, "=", id);
 
         if (hasVersion) {
-            updater = updater.where(versionColumn, originalVersion);
+            updater = updater.where(versionColumn, "=", originalVersion);
         }
 
         const affected: number = await updater.update(outgoing);

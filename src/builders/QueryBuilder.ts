@@ -1201,16 +1201,8 @@ export default class QueryBuilder {
         return this.mysqlPinned(async () => {
             const compiled: CompiledQuery = this.compileUpdate(values);
             const result: Array<any> = await this.grammar.run(compiled.sql, compiled.bindings);
-            const count: number = this.affectedRows(result);
 
-            if (this.grammar.driverName() === DatabaseDriverEnum.Mysql && count === 0) {
-                const rows: Array<any> = await this.grammar.run("SELECT ROW_COUNT() AS cnt");
-
-                if (rows?.[0] && typeof rows[0].cnt !== "undefined")
-                    return Number(rows[0].cnt) || 0;
-            }
-
-            return count;
+            return this.resolveAffectedRows(result);
         });
     }
 
@@ -1245,6 +1237,15 @@ export default class QueryBuilder {
         await this.clone().insert({...attributes, ...values});
 
         return true;
+    }
+
+    public async delete(): Promise<number> {
+        return this.mysqlPinned(async () => {
+            const compiled: CompiledQuery = this.compileDelete();
+            const result: Array<any> = await this.grammar.run(compiled.sql, compiled.bindings);
+
+            return this.resolveAffectedRows(result);
+        });
     }
 
     public async increment(
@@ -1763,6 +1764,18 @@ export default class QueryBuilder {
         };
     }
 
+    protected compileDelete(): CompiledQuery {
+        const wherePart: CompiledQuery = this.compileWheres();
+
+        return {
+            sql: `DELETE FROM ${this.grammar.quote(this.fromTable!)}${wherePart.sql}`.replace(
+                /\s+/g,
+                " "
+            ),
+            bindings: wherePart.bindings
+        };
+    }
+
     protected compileSignature(): string | null {
         if (this._unions.length > 0) return null;
 
@@ -2060,5 +2073,15 @@ export default class QueryBuilder {
         const count: number = result && Number((result as any).count);
 
         return Array.isArray(result) ? count || result.length : 0;
+    }
+
+    private async resolveAffectedRows(result: Array<any>): Promise<number> {
+        const count: number = this.affectedRows(result);
+
+        if (this.grammar.driverName() !== DatabaseDriverEnum.Mysql || count !== 0) return count;
+
+        const rows: Array<any> = await this.grammar.run("SELECT ROW_COUNT() AS cnt");
+
+        return Number(rows?.[0]?.cnt) || 0;
     }
 }
