@@ -1,3 +1,4 @@
+import type {QueryBuilderCallback} from "@/types/query";
 import Model from "@/bases/Model";
 import QueryBuilder from "@/builders/QueryBuilder";
 
@@ -24,3 +25,8 @@ export type EagerLoadSpec = {
 };
 
 export type EagerLoadRelation = string | EagerLoadSpec;
+
+export type GlobalScope = {
+    name?: string;
+    scope: QueryBuilderCallback;
+};

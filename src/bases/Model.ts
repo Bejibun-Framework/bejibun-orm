@@ -1,4 +1,10 @@
-import type {EagerLoadRelation, EagerLoadSpec, ModelEvent, ModelEventCallback} from "@/types/model";
+import type {
+    EagerLoadRelation,
+    EagerLoadSpec,
+    GlobalScope,
+    ModelEvent,
+    ModelEventCallback
+} from "@/types/model";
 import type {QueryBuilderCallback} from "@/types/query";
 import Logger from "@bejibun/logger";
 import Luxon from "@bejibun/utils/facades/Luxon";
@@ -31,10 +37,7 @@ export default class Model<T = Record<string, any>> {
     public static lazyLoadingPreventionEnabled: boolean = false;
 
     protected static __events: Record<string, Array<ModelEventCallback>> = {};
-    protected static __globalScopes: Array<{
-        name?: string;
-        scope: QueryBuilderCallback;
-    }> = [];
+    protected static __globalScopes: Array<GlobalScope> = [];
 
     protected _attributes: Record<string, any> = {};
     protected _original: Record<string, any> = {};
@@ -320,73 +323,6 @@ export default class Model<T = Record<string, any>> {
         this.applyScopes(builder, (this as any).__globalScopes || []);
 
         return this.applyModelDecorators(builder);
-    }
-
-    public static newQueryWithoutScopes(): QueryBuilder {
-        const builder: QueryBuilder = new QueryBuilder(this.tableName);
-
-        builder._modelClass = this;
-        builder.setRelationResolver((name: string) => this.resolveRelation(name));
-
-        return builder;
-    }
-
-    public static withoutGlobalScope(nameOrFunc: string | QueryBuilderCallback): QueryBuilder {
-        const builder: QueryBuilder = new QueryBuilder(this.tableName);
-
-        builder._modelClass = this;
-        builder.setRelationResolver((name: string) => this.resolveRelation(name));
-
-        const kept: Array<{
-            name?: string;
-            scope: QueryBuilderCallback;
-        }> = ((this as any).__globalScopes || []).filter((entry: any) =>
-            typeof nameOrFunc === "function"
-                ? entry.scope !== nameOrFunc
-                : entry.name !== nameOrFunc
-        );
-
-        this.applyScopes(builder, kept);
-
-        return this.applyModelDecorators(builder);
-    }
-
-    public static withoutGlobalScopes(): QueryBuilder {
-        return this.newQueryWithoutScopes();
-    }
-
-    public static async withoutEvents<T = any>(callback: () => Promise<T> | T): Promise<T> {
-        const self: any = this as any;
-        const depth: number = self.__withoutEventsDepth || 0;
-        const own: boolean = Object.prototype.hasOwnProperty.call(this, "__events");
-        const previous: Record<string, Array<ModelEventCallback>> | undefined = self.__events;
-
-        self.__events = {};
-        self.__withoutEventsDepth = depth + 1;
-
-        try {
-            return await callback();
-        } finally {
-            self.__withoutEventsDepth = depth;
-
-            if (depth === 0) {
-                if (own || previous !== undefined) self.__events = previous;
-                else delete self.__events;
-            }
-        }
-    }
-
-    public static async withoutTimestamps<T = any>(callback: () => Promise<T> | T): Promise<T> {
-        const modelClass: any = this as any;
-        const previous: boolean = modelClass.timestampsEnabled;
-
-        modelClass.timestampsEnabled = false;
-
-        try {
-            return await callback();
-        } finally {
-            modelClass.timestampsEnabled = previous;
-        }
     }
 
     public static newQuery(): QueryBuilder {
@@ -708,6 +644,215 @@ export default class Model<T = Record<string, any>> {
         }
     }
 
+    public static async updateOrCreate(
+        attributes: Record<string, any>,
+        values: Record<string, any> = {}
+    ): Promise<any> {
+        const search = (query: QueryBuilder): void => {
+            for (const [key, value] of Object.entries(attributes)) {
+                query.where(key, "=", value);
+            }
+        };
+        const instance: any = await this.query().where(search).first();
+
+        if (instance) {
+            if (Object.keys(values).length > 0) {
+                instance.forceFill(values);
+
+                await instance.save();
+            }
+
+            return instance;
+        }
+
+        try {
+            return await this.create({...attributes, ...values});
+        } catch (error: any) {
+            if (!(error instanceof UniqueConstraintViolationException)) throw error;
+
+            const raced: any = await this.query().where(search).first();
+
+            if (raced) {
+                if (Object.keys(values).length > 0) {
+                    raced.forceFill(values);
+
+                    await raced.save();
+                }
+
+                return raced;
+            }
+
+            throw error;
+        }
+    }
+
+    public static async forceCreate(attributes: Record<string, any>): Promise<any> {
+        const instance: any = new (this as any)(attributes);
+
+        instance.forceFill(attributes);
+
+        await instance.save();
+
+        return instance;
+    }
+
+    public static async findMany(ids: Array<any>): Promise<Array<any>> {
+        if (ids.length === 0) return [];
+
+        return this.query().whereIn(this.idColumn, ids).get();
+    }
+
+    public static on(event: ModelEvent, callback: ModelEventCallback): void {
+        if (!Object.prototype.hasOwnProperty.call(this, "__events")) this.__events = {};
+
+        const events: any = this.__events;
+
+        if (!events[event]) events[event] = [];
+
+        events[event].push(callback);
+    }
+
+    public static creating(callback: ModelEventCallback): void {
+        this.on("creating", callback);
+    }
+
+    public static created(callback: ModelEventCallback): void {
+        this.on("created", callback);
+    }
+
+    public static retrieved(callback: ModelEventCallback): void {
+        this.on("retrieved", callback);
+    }
+
+    public static updating(callback: ModelEventCallback): void {
+        this.on("updating", callback);
+    }
+
+    public static updated(callback: ModelEventCallback): void {
+        this.on("updated", callback);
+    }
+
+    public static deleting(callback: ModelEventCallback): void {
+        this.on("deleting", callback);
+    }
+
+    public static deleted(callback: ModelEventCallback): void {
+        this.on("deleted", callback);
+    }
+
+    public static saving(callback: ModelEventCallback): void {
+        this.on("saving", callback);
+    }
+
+    public static saved(callback: ModelEventCallback): void {
+        this.on("saved", callback);
+    }
+
+    public static restoring(callback: ModelEventCallback): void {
+        this.on("restoring", callback);
+    }
+
+    public static restored(callback: ModelEventCallback): void {
+        this.on("restored", callback);
+    }
+
+    public static observe(observer: any): void {
+        const events: Array<ModelEvent> = [
+            "creating",
+            "created",
+            "updating",
+            "updated",
+            "deleting",
+            "deleted",
+            "saving",
+            "saved",
+            "restoring",
+            "restored"
+        ];
+
+        for (const event of events) {
+            if (typeof observer[event] === "function")
+                this.on(event, observer[event].bind(observer));
+        }
+    }
+
+    public static addGlobalScope(
+        nameOrScope: string | QueryBuilderCallback,
+        scope?: QueryBuilderCallback
+    ): void {
+        const entry: GlobalScope =
+            typeof nameOrScope === "function"
+                ? {scope: nameOrScope}
+                : {name: nameOrScope, scope: scope!};
+
+        this.__globalScopes = [...(this.__globalScopes || []), entry];
+    }
+
+    public static newQueryWithoutScopes(): QueryBuilder {
+        const builder: QueryBuilder = new QueryBuilder(this.tableName);
+
+        builder._modelClass = this;
+        builder.setRelationResolver((name: string) => this.resolveRelation(name));
+
+        return builder;
+    }
+
+    public static withoutGlobalScope(nameOrFunc: string | QueryBuilderCallback): QueryBuilder {
+        const builder: QueryBuilder = new QueryBuilder(this.tableName);
+
+        builder._modelClass = this;
+        builder.setRelationResolver((name: string) => this.resolveRelation(name));
+
+        const kept: Array<GlobalScope> = ((this as any).__globalScopes || []).filter(
+            (entry: any) =>
+                typeof nameOrFunc === "function"
+                    ? entry.scope !== nameOrFunc
+                    : entry.name !== nameOrFunc
+        );
+
+        this.applyScopes(builder, kept);
+
+        return this.applyModelDecorators(builder);
+    }
+
+    public static withoutGlobalScopes(): QueryBuilder {
+        return this.newQueryWithoutScopes();
+    }
+
+    public static async withoutEvents<T = any>(callback: () => Promise<T> | T): Promise<T> {
+        const self: any = this as any;
+        const depth: number = self.__withoutEventsDepth || 0;
+        const own: boolean = Object.prototype.hasOwnProperty.call(this, "__events");
+        const previous: Record<string, Array<ModelEventCallback>> | undefined = self.__events;
+
+        self.__events = {};
+        self.__withoutEventsDepth = depth + 1;
+
+        try {
+            return await callback();
+        } finally {
+            self.__withoutEventsDepth = depth;
+
+            if (depth === 0) {
+                if (own || previous !== undefined) self.__events = previous;
+                else delete self.__events;
+            }
+        }
+    }
+
+    public static async withoutTimestamps<T = any>(callback: () => Promise<T> | T): Promise<T> {
+        const modelClass: any = this as any;
+        const previous: boolean = modelClass.timestampsEnabled;
+
+        modelClass.timestampsEnabled = false;
+
+        try {
+            return await callback();
+        } finally {
+            modelClass.timestampsEnabled = previous;
+        }
+    }
+
     protected proxyHandlers(): ProxyHandler<Model<any>> {
         return Model.MODEL_PROXY_HANDLERS;
     }
@@ -776,13 +921,7 @@ export default class Model<T = Record<string, any>> {
         return relation;
     }
 
-    protected static applyScopes(
-        builder: QueryBuilder,
-        scopes: Array<{
-            name?: string;
-            scope: QueryBuilderCallback;
-        }>
-    ): QueryBuilder {
+    protected static applyScopes(builder: QueryBuilder, scopes: Array<GlobalScope>): QueryBuilder {
         for (const entry of scopes) entry.scope(builder);
 
         return builder;
