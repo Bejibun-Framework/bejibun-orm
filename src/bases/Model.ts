@@ -389,6 +389,10 @@ export default class Model<T = Record<string, any>> {
         return model;
     }
 
+    public static async findOrFail(id: any, error?: any): Promise<any> {
+        return this.query().findOrFail(id, ["*"], error);
+    }
+
     public static async create(attributes: Record<string, any>): Promise<any> {
         const instance: any = new (this as any)(attributes);
 
@@ -851,6 +855,84 @@ export default class Model<T = Record<string, any>> {
         } finally {
             modelClass.timestampsEnabled = previous;
         }
+    }
+
+    public static where(...args: Array<any>): QueryBuilder {
+        return this.query().where(...args);
+    }
+
+    public static has(relation: string, operator: string = ">=", count: number = 1): QueryBuilder {
+        return this.query().has(relation, operator, count);
+    }
+
+    public static orHas(relation: string, operator: string = ">=", count: number = 1): QueryBuilder {
+        return this.query().orHas(relation, operator, count);
+    }
+
+    public static whereHas(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+        return this.query().whereHas(relation, callback, operator, count);
+    }
+
+    public static orWhereHas(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+        return this.query().orWhereHas(relation, callback, operator, count);
+    }
+
+    public static doesntHave(relation: string, operator: string = ">=", count: number = 1): QueryBuilder {
+        return this.query().doesntHave(relation, operator, count);
+    }
+
+    public static orDoesntHave(relation: string, operator: string = ">=", count: number = 1): QueryBuilder {
+        return this.query().orDoesntHave(relation, operator, count);
+    }
+
+    public static whereDoesntHave(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+        return this.query().whereDoesntHave(relation, callback, operator, count);
+    }
+
+    public static orWhereDoesntHave(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+        return this.query().orWhereDoesntHave(relation, callback, operator, count);
+    }
+
+    public static whereRelation(relation: string, column: string, operator?: any, value?: any): QueryBuilder {
+        return this.query().whereRelation(relation, column, operator, value);
+    }
+
+    public static orWhereRelation(relation: string, column: string, operator?: any, value?: any): QueryBuilder {
+        return this.query().orWhereRelation(relation, column, operator, value);
+    }
+
+    public static async withWhereHas(relation: string, callback?: QueryBuilderCallback, operator: string = ">=", count: number = 1): QueryBuilder {
+        const models: Array<any> = await this.query().whereHas(relation, callback, operator, count).get();
+
+        await this.eagerLoad(models, relation);
+
+        return models;
+    }
+
+    public static newInstance(attributes: Record<string, any>, exists: boolean = false): any {
+        const instance: any = Object.create(this.prototype);
+        const attrs: Record<string, any> = {};
+
+        for (const [key, value] of Object.entries(attributes)) {
+            attrs[key] = instance.castIncoming(key, value);
+        }
+
+        instance._attributes = attrs;
+        instance._exists = exists;
+        instance._relations = {};
+        instance._changes = {};
+
+        instance.syncOriginal(attrs);
+
+        const proxied: any = new Proxy(instance, instance.proxyHandlers());
+
+        if (exists && this.__events?.retrieved?.length) {
+            Promise.resolve(proxied.fireModelEvent("retrieved")).catch((error: any) => {
+                Logger.setContext("ORM").error(`Retrieved event failed: ${String(error)}`);
+            });
+        }
+
+        return proxied;
     }
 
     protected proxyHandlers(): ProxyHandler<Model<any>> {
