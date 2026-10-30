@@ -4,28 +4,78 @@ import Model from "@/bases/Model";
 import QueryBuilder from "@/builders/QueryBuilder";
 import RelationException from "@/exceptions/RelationException";
 
+/**
+ * Model relationship container. A `Relation` is returned by
+ * model relation methods (`posts() { return this.hasMany(Post); }`).
+ *
+ * Supports lazy loading via `await model.posts` (thenable) or explicit
+ * `model.posts().get()`, plus batch eager loading through the model.
+ */
 export default class Relation {
     public type: RelationType;
     public parent: any;
+
+    /** The related model class. */
     public related: any;
+
+    /**
+     * The foreign key column -- on the target/child table for has* and
+     * morphMany, on THIS table for `belongsTo`, and on the pivot table for
+     * the many-to-many types.
+     */
     public foreignKey: string;
+
+    /**
+     * The owner key column -- on this/parent table for has*, on the RELATED
+     * table for `belongsTo`, and on the through/pivot row otherwise.
+     */
     public ownerKey: string;
+
     public name?: string;
 
+    /** Pivot table name (belongsToMany / morphToMany / morphedByMany). */
     declare private pivotTable?: string;
-    declare private relatedKey?: string;
-    declare private relatedOwnerKey?: string;
-    declare private through?: any;
-    declare private throughTable?: string;
-    declare private secondKey?: string;
-    declare private secondLocalKey?: string;
-    declare private morphName?: string;
-    declare private morphType?: string;
-    declare private typeColumn?: string;
-    declare private pivotAlias?: string;
-    declare private pivotModel?: string;
 
-    private pivotColumns?: Array<string> = [];
+    /** Alias prefix for the pivot's parent FK (see `as()`). */
+    declare private pivotAlias?: string;
+
+    /** Pivot model class used to persist attach rows (see `using()`). */
+    declare private pivotModel?: any;
+
+    /** FK column on the pivot for the related model. */
+    declare private relatedKey?: string;
+
+    /** PK column on the related table. */
+    declare private relatedOwnerKey?: string;
+
+    /** Intermediate model class (hasOneThrough / hasManyThrough). */
+    declare private through?: any;
+
+    /** Table name of `through` (hasOneThrough / hasManyThrough). */
+    declare private throughTable?: string;
+
+    /** FK on the related table referencing the through table. */
+    declare private secondKey?: string;
+
+    /** PK on the through table. */
+    declare private secondLocalKey?: string;
+
+    /** Morph name (morphTo / morphMany / morphToMany / morphedByMany). */
+    declare private morphName?: string;
+
+    /** The pivot's `{name}_type` column (morphToMany / morphedByMany). */
+    declare private morphType?: string;
+
+    /** The `{name}_type` column. */
+    declare private typeColumn?: string;
+
+    /** Extra columns to select from the pivot table. */
+    private pivotColumns: Array<string> = [];
+
+    /**
+     * Optional query constraint applied to the eager-load (one-shot) query.
+     * Set only while `eagerLoad` runs; lazy `await model.posts` is unconstrained.
+     */
     private constraints?: (builder: any) => any;
 
     private constructor(
@@ -42,6 +92,15 @@ export default class Relation {
         this.ownerKey = ownerKey;
     }
 
+    /**
+     * Creates a "has one" relation.
+     *
+     * @param {any} parent - The parent model instance.
+     * @param {any} related - The related model class.
+     * @param {string} [foreignKey] - FK column on the child table.
+     * @param {string} [ownerKey] - PK column on the parent table.
+     * @returns {Relation} The relation.
+     */
     public static hasOne(
         parent: any,
         related: any,
@@ -516,6 +575,13 @@ export default class Relation {
         }
     }
 
+    /**
+     * Fetches the related row(s) for the current parent. Resolves to a
+     * single model -- or `null` when there is none -- for
+     * hasOne/belongsTo/morphTo, an array otherwise.
+     *
+     * @returns {Promise<any>} The related model(s).
+     */
     public async get(): Promise<any> {
         const rows: Array<Record<string, any>> = await this.query().getRaw();
 
@@ -530,6 +596,12 @@ export default class Relation {
         return this.related.hydrate(rows);
     }
 
+    /**
+     * Touches the owner of a belongsTo/morphTo relation (used by the
+     * model's `touches` option). Other relation types are no-ops.
+     *
+     * @returns {Promise<boolean>} True when an owner was loaded and touched.
+     */
     public async touch(): Promise<boolean> {
         if (this.type !== "belongsTo" && this.type !== "morphTo") return false;
 
@@ -559,6 +631,12 @@ export default class Relation {
         return this;
     }
 
+    /**
+     * Infers the table name when a related model does not declare one.
+     *
+     * @param {any} related - The related model class.
+     * @returns {string} The declared or inferred table name.
+     */
     private static tableOf(related: any): string {
         return (
             related?.tableName ||
