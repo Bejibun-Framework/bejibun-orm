@@ -3,7 +3,8 @@ import type {
     EagerLoadSpec,
     GlobalScope,
     ModelEvent,
-    ModelEventCallback
+    ModelEventCallback,
+    ModelInstance
 } from "@/types/model";
 import type {QueryBuilderCallback} from "@/types/query";
 import Logger from "@bejibun/logger";
@@ -137,7 +138,10 @@ class Model<T = Record<string, any>> {
      * @param {boolean} [exists] - Whether the instance is persisted.
      * @returns {any} The proxied model instance.
      */
-    public static newInstance(attributes: Record<string, any>, exists: boolean = false): any {
+    public static newInstance(
+        attributes: Record<string, any>,
+        exists: boolean = false
+    ): ModelInstance {
         const instance: any = Object.create(this.prototype);
         const attrs: Record<string, any> = {};
 
@@ -543,15 +547,14 @@ class Model<T = Record<string, any>> {
      * @returns {Promise<T>} The callback result.
      */
     public static async withoutTimestamps<T = any>(callback: () => Promise<T> | T): Promise<T> {
-        const modelClass: any = this as any;
-        const previous: boolean = modelClass.timestampsEnabled;
+        const previous: boolean = this.timestampsEnabled;
 
-        modelClass.timestampsEnabled = false;
+        this.timestampsEnabled = false;
 
         try {
             return await callback();
         } finally {
-            modelClass.timestampsEnabled = previous;
+            this.timestampsEnabled = previous;
         }
     }
 
@@ -2322,7 +2325,7 @@ class Model<T = Record<string, any>> {
         return key
             .split(/[-_\s]+/)
             .filter((part: string) => part.length > 0)
-            .map((part: string) => part.charAt(0).toUpperCase() + part.slice(1))
+            .map((part: string) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
             .join("");
     }
 
