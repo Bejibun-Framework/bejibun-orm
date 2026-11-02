@@ -1,5 +1,7 @@
 export {default as ConnectionException} from "@/exceptions/ConnectionException";
 
+export {default as FactoryException} from "@/exceptions/FactoryException";
+
 export {default as OptimisticLockException} from "@/exceptions/OptimisticLockException";
 
 export {default as QueryException} from "@/exceptions/QueryException";

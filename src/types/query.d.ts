@@ -96,14 +96,25 @@ export interface CursorPaginationResult {
     hasMore: boolean;
 }
 
+/** A single executed query. */
 export interface QueryLogEntry {
+    /** The executed SQL statement. */
     sql: string;
+
+    /** The bound parameter values. */
     bindings: Array<any>;
+
+    /** The driver the statement ran against (`pg`, `mysql`, `sqlite`). */
     driver: string;
+
+    /** Execution duration in milliseconds. */
     duration: number;
+
+    /** The error when the statement threw. */
     error?: any;
 }
 
+/** Listener invoked after every executed statement. */
 export type QueryListener = (entry: QueryLogEntry) => void;
 
 export type QueryBuilderCallback = (builder: QueryBuilder) => QueryBuilder;
