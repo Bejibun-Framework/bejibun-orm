@@ -58,7 +58,9 @@ export default class FactoryBuilder {
      */
     public async make(overrides?: Record<string, any> | Array<Record<string, any>>): Promise<any> {
         const rows: Array<any> = await this.buildAll(overrides);
-        const instances: Array<any> = rows.map((row: any) => this.modelClass.newInstance(row, false));
+        const instances: Array<any> = rows.map((row: any) =>
+            this.modelClass.newInstance(row, false)
+        );
 
         return this.amount === 1 ? instances[0] : instances;
     }
@@ -71,7 +73,9 @@ export default class FactoryBuilder {
      * @param {Record<string, any> | Array<Record<string, any>>} [overrides] - Per-instance or shared attribute overrides.
      * @returns {Promise<any>} One model instance, or an array of them when `count()` was used.
      */
-    public async create(overrides?: Record<string, any> | Array<Record<string, any>>): Promise<any> {
+    public async create(
+        overrides?: Record<string, any> | Array<Record<string, any>>
+    ): Promise<any> {
         const rows: Array<any> = await this.buildAll(overrides);
         const created: Array<any> = [];
 
@@ -95,7 +99,10 @@ export default class FactoryBuilder {
      * @param {Record<string, any> | Array<Record<string, any>>} [overrides] - Per-instance or shared attribute overrides.
      * @returns {Promise<Array<any>>} The persisted instances, always as an array.
      */
-    public async createMany(count: number = this.amount, overrides?: Record<string, any> | Array<Record<string, any>>): Promise<Array<any>> {
+    public async createMany(
+        count: number = this.amount,
+        overrides?: Record<string, any> | Array<Record<string, any>>
+    ): Promise<Array<any>> {
         this.count(count);
 
         const result: any = await this.create(overrides);
@@ -110,10 +117,15 @@ export default class FactoryBuilder {
      * @param {Record<string, any> | Array<Record<string, any>>} overrides - Optional per-instance or shared overrides.
      * @returns {Promise<Array<Record<string, any>>>} The resolved attribute maps.
      */
-    private async buildAll(overrides?: Record<string, any> | Array<Record<string, any>>): Promise<Array<Record<string, any>>> {
+    private async buildAll(
+        overrides?: Record<string, any> | Array<Record<string, any>>
+    ): Promise<Array<Record<string, any>>> {
         const definition: Definition | undefined = Factory.definitionFor(this.modelClass);
 
-        if (!definition) throw new FactoryException(`No factory definition registered for [${this.modelClass.name}]. Call Factory.define() first.`);
+        if (!definition)
+            throw new FactoryException(
+                `No factory definition registered for [${this.modelClass.name}]. Call Factory.define() first.`
+            );
 
         const count: number = this.amount;
         const rows: Array<Record<string, any>> = [];

@@ -379,8 +379,8 @@ export default class Grammar {
                 driver = (connection as any).options?.url?.startsWith(DatabaseDriverEnum.Mysql)
                     ? DatabaseDriverEnum.Mysql
                     : (connection as any).options?.filename
-                        ? DatabaseDriverEnum.Sqlite
-                        : DatabaseDriverEnum.Pg;
+                      ? DatabaseDriverEnum.Sqlite
+                      : DatabaseDriverEnum.Pg;
             }
         }
 

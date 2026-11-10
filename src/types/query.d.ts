@@ -1,14 +1,19 @@
 import QueryBuilder from "@/builders/QueryBuilder";
 import Raw from "@/builders/Raw";
 
+/** Logical connector between SQL conditions. */
 export type BooleanOperator = "and" | "or";
 
+/** Supported JOIN clause types. */
 export type JoinType = "inner" | "left" | "right" | "cross" | "raw";
 
+/** Supported ORDER BY directions. */
 export type OrderDirection = "asc" | "desc";
 
+/** Supported aggregate operations, including correlated existence checks. */
 export type AggregateType = "count" | "sum" | "max" | "min" | "avg" | "exists";
 
+/** A single WHERE clause operand. */
 export interface WhereClause {
     type:
         | "basic"
@@ -38,6 +43,7 @@ export interface WhereClause {
     dateFunction?: string;
 }
 
+/** A JOIN definition. */
 export interface JoinClause {
     type: JoinType;
     table: string;
@@ -48,27 +54,32 @@ export interface JoinClause {
     bindings?: Array<any>;
 }
 
+/** A flattened ORDER BY entry. */
 export interface OrderClause {
     column: string;
     direction: OrderDirection;
     bindings?: Array<any>;
 }
 
+/** A HAVING clause fragment. */
 export interface HavingClause {
     sql: string;
     bindings: Array<any>;
 }
 
+/** A UNION / UNION ALL clause. */
 export interface UnionClause {
     query: QueryBuilder;
     all: boolean;
 }
 
+/** A compiled SQL fragment and its associated bindings. */
 export interface CompiledQuery {
     sql: string;
     bindings: Array<any>;
 }
 
+/** Standard pagination result. */
 export interface PaginationResult {
     data: Array<Record<string, any>>;
     total: number;
@@ -79,6 +90,7 @@ export interface PaginationResult {
     to: number | null;
 }
 
+/** Simple pagination result (no total query). */
 export interface SimplePaginationResult {
     data: Array<Record<string, any>>;
     perPage: number;
@@ -89,6 +101,7 @@ export interface SimplePaginationResult {
     hasMore: boolean;
 }
 
+/** Cursor-based pagination result. */
 export interface CursorPaginationResult {
     data: Array<Record<string, any>>;
     perPage: number;
@@ -117,6 +130,8 @@ export interface QueryLogEntry {
 /** Listener invoked after every executed statement. */
 export type QueryListener = (entry: QueryLogEntry) => void;
 
+/** Callback that configures and returns a query builder. */
 export type QueryBuilderCallback = (builder: QueryBuilder) => QueryBuilder;
 
+/** Accepted values and subqueries for IN and NOT IN clauses. */
 export type WhereInValues = Array<any> | QueryBuilder | QueryBuilderCallback | Raw;

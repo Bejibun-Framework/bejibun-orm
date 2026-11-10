@@ -32,15 +32,14 @@ export default function SoftDeletes<B extends typeof Model>(Base: B) {
          * @returns {QueryBuilder} A builder filtered to deleted rows.
          */
         public static onlyTrashed(): QueryBuilder {
-            const modelClass: typeof SoftDeletesModel = this;
-            const builder: QueryBuilder = new QueryBuilder(modelClass.tableName);
+            const builder: QueryBuilder = new QueryBuilder(this.tableName);
 
-            builder._modelClass = modelClass;
-            builder.setRelationResolver((name: string) => modelClass.resolveRelation(name));
+            builder._modelClass = this;
+            builder.setRelationResolver((name: string) => this.resolveRelation(name));
 
-            modelClass.applyScopes(builder, modelClass.__globalScopes || []);
+            this.applyScopes(builder, this.__globalScopes || []);
 
-            return modelClass.applyModelDecorators(builder, "only-trashed");
+            return this.applyModelDecorators(builder, "only-trashed");
         }
 
         /**
@@ -49,15 +48,14 @@ export default function SoftDeletes<B extends typeof Model>(Base: B) {
          * @returns {QueryBuilder} A builder without the soft-delete filter.
          */
         public static withTrashed(): QueryBuilder {
-            const modelClass: typeof SoftDeletesModel = this;
-            const builder: QueryBuilder = new QueryBuilder(modelClass.tableName);
+            const builder: QueryBuilder = new QueryBuilder(this.tableName);
 
             builder._modelClass = modelClass;
-            builder.setRelationResolver((name: string) => modelClass.resolveRelation(name));
+            builder.setRelationResolver((name: string) => this.resolveRelation(name));
 
-            modelClass.applyScopes(builder, modelClass.__globalScopes || []);
+            this.applyScopes(builder, this.__globalScopes || []);
 
-            return modelClass.applyModelDecorators(builder, "with-trashed");
+            return this.applyModelDecorators(builder, "with-trashed");
         }
 
         /**
@@ -159,8 +157,7 @@ export default function SoftDeletes<B extends typeof Model>(Base: B) {
             builder: QueryBuilder,
             mode: "default" | "with-trashed" | "only-trashed" = "default"
         ): QueryBuilder {
-            const modelClass: typeof SoftDeletesModel = this;
-            const deletedColumn: string | null = modelClass.deletedColumn;
+            const deletedColumn: string | null = this.deletedColumn;
 
             if (deletedColumn) {
                 if (mode === "only-trashed") {
@@ -180,13 +177,11 @@ export default function SoftDeletes<B extends typeof Model>(Base: B) {
          * @returns {Promise<number>} Resolves after the update.
          */
         protected async performSoftDelete(now: string): Promise<number> {
-            const model = this;
-            const modelClass: typeof SoftDeletesModel =
-                model.constructor as typeof SoftDeletesModel;
-            const id: any = model.getAttribute(modelClass.idColumn);
+            const modelClass: typeof SoftDeletesModel = this.constructor as typeof SoftDeletesModel;
+            const id: any = this.getAttribute(modelClass.idColumn);
             const deletedColumn: string | null = modelClass.deletedColumn;
 
-            if (!model._exists || deletedColumn === null || id === undefined) return 0;
+            if (!this._exists || deletedColumn === null || id === undefined) return 0;
 
             return new QueryBuilder(modelClass.tableName)
                 .where(modelClass.idColumn, "=", id)

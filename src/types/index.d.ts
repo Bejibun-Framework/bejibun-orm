@@ -8,6 +8,8 @@ export * from "@/types/factory";
 
 export * from "@/types/grammar";
 
+export * from "@/types/migration";
+
 export * from "@/types/model";
 
 export * from "@/types/query";

@@ -9,7 +9,10 @@ import FactoryBuilder from "@/builders/FactoryBuilder";
  */
 export default class Factory {
     /** Registered definitions, keyed by model class. */
-    private static definitions: WeakMap<typeof Model, Definition> = new WeakMap<typeof Model, Definition>();
+    private static definitions: WeakMap<typeof Model, Definition> = new WeakMap<
+        typeof Model,
+        Definition
+    >();
 
     /**
      * Registers a factory definition for a model class.

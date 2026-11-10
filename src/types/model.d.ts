@@ -27,10 +27,10 @@ export type ModelEventCallback = (
     model: ModelInstance<any>
 ) => boolean | Promise<boolean> | void | Promise<void>;
 
-/** Normalized eager-load spec (string shorthand expanded into the object form). */
+/** A relation name (dotted paths allowed) plus optional query constraints. */
 export type EagerLoadSpec = {
     relation: string;
-    constraints?: (builder: QueryBuilder) => any;
+    constraints?: (builder: QueryBuilder) => void;
 };
 
 /** A single relation eager-load entry: a plain relation name, or a name plus a query constraint. */
